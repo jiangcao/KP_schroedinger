@@ -8,8 +8,10 @@ module kpHam
     private
     
     public :: read_KP_coeff, save_KP_coeff
+    public :: save_Ham_blocks
     public :: calc_bands_at, calc_KP_block, calc_kpbands_at
     public :: generate_LK4,generate_LK6
+    public :: test_bandstructure
     
 
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
@@ -22,7 +24,7 @@ module kpHam
     real(8), parameter :: eps0=8.854d-12 ! C/V/m 
     real(8), parameter :: c0=2.998d8 ! m/s
     real(8), parameter :: e0=1.6022d-19 ! C
-    real(8), parameter :: hb2m=7.62058d-20  ! hbar^2/(2m0) eV*m^2
+    real(8), parameter :: hb2m=hbar**2/2.0d0/m0/e0  ! hbar^2/(2m0) eV*m^2
         
     integer, parameter :: num_k = 10 
     ! index for different types of k-terms available in the KP model
@@ -64,9 +66,9 @@ CONTAINS
         Q(dy2) = hb2m * gam2
         Q(dz2) = -2.0d0 * hb2m * gam2
         !
-        R(dx2) = - hb2m * sqrt(3.0d0) * gam3
-        R(dy2) = + hb2m * sqrt(3.0d0) * gam3
-        R(dxdy) = hb2m * sqrt(3.0d0) * 2.0d0 * c1i * gam2
+        R(dx2) = - hb2m * sqrt(3.0d0) * gam2
+        R(dy2) = + hb2m * sqrt(3.0d0) * gam2
+        R(dxdy) = hb2m * sqrt(3.0d0) * 2.0d0 * c1i * gam3
         !
         S(dxdz) = hb2m * 2.0d0 * sqrt(3.0d0) * gam3 
         S(dydz) = hb2m * 2.0d0 * sqrt(3.0d0) * gam3 * (-c1i) 
@@ -100,56 +102,11 @@ CONTAINS
         real(8), intent(in) :: gam1,gam2,gam3,kap
         complex(8), intent(out) :: KPcoeff(4,4,num_k) ! KP coeff. table        
         ! ----
-        complex(8)::P,Q,S,R1,R2
+        complex(8)::LK6(6,6,num_k)
         !
-        P = hb2m * gam1
-        Q = hb2m * gam2
-        R1 = hb2m * sqrt(3.0d0) * gam3
-        R2 = hb2m * sqrt(3.0d0) * 2.0d0 * c1i * gam2
-        S  = hb2m * 2.0d0 * sqrt(3.0d0) * gam3 
         KPcoeff=czero
-        !
-        KPcoeff(:,:,const) = czero
-        !
-        KPcoeff(:,:,dx) = czero
-        KPcoeff(:,:,dy) = czero
-        KPcoeff(:,:,dz) = czero
-        !
-        KPcoeff(:,:,dx2) = reshape( &
-                                  (/ P+Q   ,    czero ,  -R1 ,  czero , &
-                                     czero ,    P-Q   , czero,  -R1   , &
-                                -conjg(R1) ,    czero ,  P-Q ,  czero , &
-                                     czero ,-conjg(R1), czero,  P+Q     /),  (/4, 4/) )
-        !
-        KPcoeff(:,:,dy2) = reshape( &
-                                  (/ P+Q   ,    czero ,   R1 ,  czero , &
-                                     czero ,    P-Q   , czero,   R1   , &
-                                 conjg(R1) ,    czero ,  P-Q ,  czero , &
-                                     czero , conjg(R1), czero,  P+Q     /),  (/4, 4/) )
-                                             
-        KPcoeff(:,:,dz2) = reshape( &
-                                  (/ P-2.0*Q ,    czero , czero   ,  czero ,  &
-                                     czero   ,  P+2.0*Q , czero   ,  czero ,  &
-                                     czero   ,    czero , P+2.0*Q ,  czero ,  &
-                                     czero   ,    czero , czero   ,  P-2.0*Q  /),  (/4, 4/) )                                     
-        KPcoeff(:,:,dxdy) = reshape( &
-                                  (/ czero ,    czero ,  R2 ,  czero ,  &
-                                     czero ,    czero , czero,  R2   ,  &
-                                 conjg(R2) ,    czero , czero, czero ,  &
-                                     czero , conjg(R2), czero, czero    /),  (/4, 4/) )
-                                             
-        KPcoeff(:,:,dxdz) = reshape( &
-                                  (/ czero ,    -S ,  czero  ,  czero , &
-                                -conjg(S)  , czero ,  czero  ,  czero , &
-                                     czero , czero ,  czero  ,   S    , &
-                                     czero , czero , conjg(S),  czero   /),  (/4, 4/) )
-                                                                                          
-        KPcoeff(:,:,dydz) = reshape( &
-                                  (/ czero , c1i*S ,  czero     ,  czero , &
-                              conjg(c1i*S) , czero ,  czero     ,  czero , &
-                                     czero , czero ,  czero     ,  c1i*S , &
-                                     czero , czero ,conjg(c1i*S),  czero   /),  (/4, 4/) )
-                    
+        call generate_LK6(LK6,gam1,gam2,gam3,0.0d0,kap)
+        KPcoeff(:,:,:)=LK6(1:4,1:4,:)
     end subroutine generate_LK4
 
 
@@ -191,6 +148,34 @@ CONTAINS
         enddo
         close(11)
     end subroutine save_KP_coeff
+
+    ! save the KP Hamiltonian blocks to a file
+    subroutine save_Ham_blocks(filename, nbnd, KPcoeff,dd)
+        character(len=*),intent(in)::filename ! file name
+        integer,intent(in)::nbnd ! number of bands
+        complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table
+        real(8), intent(in) :: dd(3) ! discretization step size in x-y-z
+        ! ----
+        integer::i(3),j(3),ix,iy,iz,m       
+        complex(8)::Hij(nbnd,nbnd)
+        open(unit=11, file=filename, status='unknown')                
+        i = (/0,0,0/)
+        !
+        do ix = -1,1
+          do iy = -1,1
+            do iz = -1,1
+              j = (/ix,iy,iz/)
+              write(11,'(3I10)') j
+              call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij)
+              do m=1,nbnd
+                write(11,'(100E18.6)') Hij(:,m)
+              enddo
+              write(11,*)
+            enddo
+          enddo
+        enddo
+        close(11)
+    end subroutine save_Ham_blocks
 
 
     ! compute the bands at a k-point before discretization
@@ -288,101 +273,101 @@ CONTAINS
         complex(8), intent(out):: coeff(num_k) ! coefficients for k-terms
         ! -----
         integer::ij(3)
-        real(8)::dx,dy,dz
+        real(8)::ddx,ddy,ddz
         ! k_v -> -i d/d_v 
         ! use the following rules
         !   d/dx = (psi_i+1 - psi_i-1)/2/dx
         !   d^2/dx^2 = (psi_i+1 + psi_i-1 - 2psi_i)/dx^2
         !   d^2/dx/dy = (psi_i+1,j+1 + psi_i-1,j-1 - psi_i+1,j-1 - psi_i-1,j+1) / (4 dx dy)        
         ij = i-j        
-        dx=dd(1)
-        dy=dd(2)
-        dz=dd(3)
+        ddx=dd(1)
+        ddy=dd(2)
+        ddz=dd(3)
         coeff(:) = czero
         ! onsite 
         if (all(ij == (/0,0,0/))) then
           coeff(const) = 1.0d0
-          coeff(dx2) = -2.0d0/dx/dx * (-c1i)**2
-          coeff(dy2) = -2.0d0/dy/dy * (-c1i)**2
-          coeff(dz2) = -2.0d0/dz/dz * (-c1i)**2
+          coeff(dx2) = -2.0d0/ddx/ddx * (-c1i)**2
+          coeff(dy2) = -2.0d0/ddy/ddy * (-c1i)**2
+          coeff(dz2) = -2.0d0/ddz/ddz * (-c1i)**2
         endif
         ! +x
         if (all(ij == (/1,0,0/))) then
-          coeff(dx) = 1.0d0/2.0d0/dx * (-c1i)
-          coeff(dx2) = 1.0d0/dx/dx   * (-c1i)**2          
+          coeff(dx) = 1.0d0/2.0d0/ddx * (-c1i)
+          coeff(dx2) = 1.0d0/ddx**2   * (-c1i)**2          
         endif
         ! -x
         if (all(ij == (/-1,0,0/))) then
-          coeff(dx) = -1.0d0/2.0d0/dx * (-c1i)
-          coeff(dx2) = 1.0d0/dx/dx    * (-c1i)**2
+          coeff(dx) = -1.0d0/2.0d0/ddx * (-c1i)
+          coeff(dx2) = 1.0d0/ddx**2    * (-c1i)**2
         endif
         ! +y
         if (all(ij == (/0,1,0/))) then
-          coeff(dy) = 1.0d0/2.0d0/dy  * (-c1i)
-          coeff(dy2) = 1.0d0/dy/dy    * (-c1i)**2
+          coeff(dy) = 1.0d0/2.0d0/ddy  * (-c1i)
+          coeff(dy2) = 1.0d0/ddy**2    * (-c1i)**2
         endif
         ! -y
         if (all(ij == (/0,-1,0/))) then
-          coeff(dy) = -1.0d0/2.0d0/dy  * (-c1i)
-          coeff(dy2) = 1.0d0/dy/dy     * (-c1i)**2
+          coeff(dy) = -1.0d0/2.0d0/ddy  * (-c1i)
+          coeff(dy2) = 1.0d0/ddy**2     * (-c1i)**2
         endif
         ! +z
         if (all(ij == (/0,0,1/))) then
-          coeff(dz) = 1.0d0/2.0d0/dz * (-c1i)
-          coeff(dz2) = 1.0d0/dz/dz   * (-c1i)**2
+          coeff(dz) = 1.0d0/2.0d0/ddz * (-c1i)
+          coeff(dz2) = 1.0d0/ddz**2   * (-c1i)**2
         endif
         ! -z
         if (all(ij == (/0,0,-1/))) then
-          coeff(dz) = -1.0d0/2.0d0/dz  * (-c1i)
-          coeff(dz2) = 1.0d0/dz/dz     * (-c1i)**2
+          coeff(dz) = -1.0d0/2.0d0/ddz  * (-c1i)
+          coeff(dz2) = 1.0d0/ddz**2     * (-c1i)**2
         endif
         ! +x +y
         if (all(ij == (/1,1,0/))) then
-          coeff(dxdy) = 1.0d0/4.0d0/dx/dy * (-c1i)**2
+          coeff(dxdy) = 1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif
         ! +x -y
         if (all(ij == (/1,-1,0/))) then
-          coeff(dxdy) = -1.0d0/4.0d0/dx/dy * (-c1i)**2
+          coeff(dxdy) = -1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif
         ! -x +y
         if (all(ij == (/-1,1,0/))) then
-          coeff(dxdy) = -1.0d0/4.0d0/dx/dy * (-c1i)**2
+          coeff(dxdy) = -1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif
         ! -x -y
         if (all(ij == (/-1,-1,0/))) then
-          coeff(dxdy) = 1.0d0/4.0d0/dx/dy * (-c1i)**2
+          coeff(dxdy) = 1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif        
         ! +x +z
         if (all(ij == (/1,0,1/))) then
-          coeff(dxdz) = 1.0d0/4.0d0/dx/dz * (-c1i)**2
+          coeff(dxdz) = 1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif
         ! +x -z
         if (all(ij == (/1,0,-1/))) then
-          coeff(dxdz) = -1.0d0/4.0d0/dx/dz * (-c1i)**2
+          coeff(dxdz) = -1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif 
         ! -x -z
         if (all(ij == (/-1,0,-1/))) then
-          coeff(dxdz) = 1.0d0/4.0d0/dx/dz * (-c1i)**2
+          coeff(dxdz) = 1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif 
         ! -x +z
         if (all(ij == (/-1,0,1/))) then
-          coeff(dxdz) = -1.0d0/4.0d0/dx/dz * (-c1i)**2
+          coeff(dxdz) = -1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif 
         ! +y +z
         if (all(ij == (/0,1,1/))) then
-          coeff(dydz) = 1.0d0/4.0d0/dy/dz * (-c1i)**2
+          coeff(dydz) = 1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif 
         ! -y +z
         if (all(ij == (/0,-1,1/))) then
-          coeff(dydz) = -1.0d0/4.0d0/dy/dz * (-c1i)**2
+          coeff(dydz) = -1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif 
         ! +y -z
         if (all(ij == (/0,1,-1/))) then
-          coeff(dydz) = -1.0d0/4.0d0/dy/dz * (-c1i)**2
+          coeff(dydz) = -1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif 
         ! -y -z
         if (all(ij == (/0,-1,-1/))) then
-          coeff(dydz) = 1.0d0/4.0d0/dy/dz * (-c1i)**2
+          coeff(dydz) = 1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif         
     end subroutine calc_FD_coeff
 
@@ -451,6 +436,87 @@ CONTAINS
         eigv(:)=W(:)
     END FUNCTION eigv
 
+!!!!!!!!!!!!!!!!!!!!!!!!   test  functions   !!!!!!!!!!!!!!!!!!!!!!!!!!
 
+    subroutine test_bandstructure(nbnd,KPcoeff,dd)
+        implicit none
+        integer, intent(in)::nbnd
+        real(8), intent(in) :: dd(3) ! discretization step size in x-y-z
+        complex(8),intent(in)::KPcoeff(nbnd,nbnd,num_k)
+        ! ----
+        real(8)::kpt(3),kpt1(3),kpt2(3)
+        real(8),allocatable::Ek(:)
+        integer :: nk,ik            
+        nk = 1000
+        allocate(Ek(nbnd))
+        !
+        open(unit=10,file='ek0.dat',status='unknown')
+        open(unit=11,file='ek.dat',status='unknown')
+        !
+        kpt1 = (/ -1.0d9 , 0.0d0 , 0.0d0 /)
+        kpt2 = (/ +1.0d9 , 0.0d0 , 0.0d0 /)
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
+          call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
+          write(11,'(7E18.6)') dble(ik)/dble(nk), Ek          
+          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+          write(10,'(7E18.6)') dble(ik)/dble(nk), Ek          
+        enddo
+        !
+        kpt1 = (/ 0.0d9 , -1.0d9 , 0.0d0 /)
+        kpt2 = (/ 0.0d9 ,  1.0d9 , 0.0d0 /)
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
+          call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
+          write(11,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
+          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+          write(10,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
+        enddo
+        !
+        kpt1 = (/ 0.0d9 , 0.0d9 , -1.0d9 /)
+        kpt2 = (/ 0.0d9 , 0.0d9 ,  1.0d9 /)
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1                    
+          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
+          write(11,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
+          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+          write(10,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
+        enddo
+        !
+        kpt1 = (/ -1.0d9 , 0.0d9 , -1.0d9 /)
+        kpt2 = (/  1.0d9 , 0.0d9 ,  1.0d9 /)
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1    
+          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
+          write(11,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
+          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+          write(10,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
+        enddo
+        !
+        kpt1 = (/ -1.0d9 , -1.0d9 , 0.0d9 /)
+        kpt2 = (/  1.0d9 ,  1.0d9 , 0.0d9 /)
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
+          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
+          write(11,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
+          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+          write(10,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
+        enddo
+        !
+        kpt1 = (/ -1.0d9 , -1.0d9 , -1.0d9 /)
+        kpt2 = (/  1.0d9 ,  1.0d9 ,  1.0d9 /)
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
+          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
+          write(11,'(7E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
+          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+          write(10,'(7E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
+        enddo
+        !
+        close(10)
+        close(11)
+        deallocate(Ek)
+    end subroutine test_bandstructure
+    
     
 end module kpHam
