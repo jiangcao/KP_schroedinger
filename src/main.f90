@@ -3,7 +3,7 @@ use kpHam
 implicit none
 
 integer :: nbnd
-real(8)::gam1,gam2,gam3,delta,kappa,dd(3),kpt(3),Ek(4),kpt1(3),kpt2(3)
+real(8)::gam1,gam2,gam3,delta,kappa,dd(3),kpt(3),Ek(6),kpt1(3),kpt2(3)
 complex(8),allocatable::KPcoeff(:,:,:)
 integer :: nk
 integer :: ik
@@ -45,11 +45,11 @@ do ik = 1,nk
   
   call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)
   
-  write(11,'(5E18.6)') dble(ik)/dble(nk), Ek
+  write(11,'(7E18.6)') dble(ik)/dble(nk), Ek
   
   call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)
   
-  write(10,'(5E18.6)') dble(ik)/dble(nk), Ek
+  write(10,'(7E18.6)') dble(ik)/dble(nk), Ek
   
 enddo
 
@@ -62,11 +62,11 @@ do ik = 1,nk
   
   call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)
   
-  write(11,'(5E18.6)') dble(ik)/dble(nk)+1.0d0, Ek
+  write(11,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek
   
   call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)
   
-  write(10,'(5E18.6)') dble(ik)/dble(nk)+1.0d0, Ek
+  write(10,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek
   
 enddo
 
@@ -79,11 +79,11 @@ do ik = 1,nk
   
   call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)
   
-  write(11,'(5E18.6)') dble(ik)/dble(nk)+2.0d0, Ek
+  write(11,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek
   
   call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)
   
-  write(10,'(5E18.6)') dble(ik)/dble(nk)+2.0d0, Ek
+  write(10,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek
   
 enddo
 
@@ -96,11 +96,11 @@ do ik = 1,nk
   
   call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)
   
-  write(11,'(5E18.6)') dble(ik)/dble(nk)+3.0d0, Ek
+  write(11,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek
   
   call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)
   
-  write(10,'(5E18.6)') dble(ik)/dble(nk)+3.0d0, Ek
+  write(10,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek
   
 enddo
 
@@ -113,11 +113,11 @@ do ik = 1,nk
   
   call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)
   
-  write(11,'(5E18.6)') dble(ik)/dble(nk)+4.0d0, Ek
+  write(11,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek
   
   call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)
   
-  write(10,'(5E18.6)') dble(ik)/dble(nk)+4.0d0, Ek
+  write(10,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek
   
 enddo
 
@@ -131,11 +131,11 @@ do ik = 1,nk
   
   call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)
   
-  write(11,'(5E18.6)') dble(ik)/dble(nk)+5.0d0, Ek
+  write(11,'(7E18.6)') dble(ik)/dble(nk)+5.0d0, Ek
   
   call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)
   
-  write(10,'(5E18.6)') dble(ik)/dble(nk)+5.0d0, Ek
+  write(10,'(7E18.6)') dble(ik)/dble(nk)+5.0d0, Ek
   
 enddo
 

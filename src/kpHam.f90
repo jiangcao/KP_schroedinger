@@ -10,6 +10,7 @@ module kpHam
     public :: read_KP_coeff, save_KP_coeff
     public :: calc_bands_at, calc_KP_block, calc_kpbands_at
     public :: generate_LK4,generate_LK6
+    
 
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
     complex(8), parameter :: czero  = dcmplx(0.0d0,0.0d0)
@@ -44,62 +45,51 @@ CONTAINS
         real(8), intent(in) :: gam1,gam2,gam3,kap,delta
         complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
         ! ----
-        complex(8)::P,Q,S,R1,R2,R1p,R2p,Sp,Qp,Sp2
+        complex(8),dimension(num_k) :: P,Q,S,R,D
+        integer::i,m,n
+        real(8),parameter :: sq2 = sqrt(2.0d0)
+        real(8),parameter :: sq3o2 = sqrt(3.0d0/2.0d0)
+        ! construct the coeff. table in another (better) way
+        P=czero
+        Q=czero
+        S=czero
+        R=czero
+        D=czero
         !
-        P = hb2m * gam1
-        Q = hb2m * gam2
-        R1 = hb2m * sqrt(3.0d0) * gam3
-        R2 = hb2m * sqrt(3.0d0) * 2.0d0 * c1i * gam2
-        S  = hb2m * 2.0d0 * sqrt(3.0d0) * gam3 
-        R1p=sqrt(2.0d0)*R1
-        R2p=sqrt(2.0d0)*R2
-        Sp=S/sqrt(2.0d0)
-        Sp2=-S*sqrt(3.0d0/2.0d0)
-        Qp=sqrt(2.0d0)*Q
+        P(dx2) = hb2m * gam1
+        P(dy2) = hb2m * gam1
+        P(dz2) = hb2m * gam1
+        !
+        Q(dx2) = hb2m * gam2
+        Q(dy2) = hb2m * gam2
+        Q(dz2) = -2.0d0 * hb2m * gam2
+        !
+        R(dx2) = - hb2m * sqrt(3.0d0) * gam3
+        R(dy2) = + hb2m * sqrt(3.0d0) * gam3
+        R(dxdy) = hb2m * sqrt(3.0d0) * 2.0d0 * c1i * gam2
+        !
+        S(dxdz) = hb2m * 2.0d0 * sqrt(3.0d0) * gam3 
+        S(dydz) = hb2m * 2.0d0 * sqrt(3.0d0) * gam3 * (-c1i) 
+        !
+        D(const) = delta
         !
         KPcoeff=czero
         !
-        KPcoeff(:,:,const) = czero
-        !
-        KPcoeff(:,:,dx) = czero
-        KPcoeff(:,:,dy) = czero
-        KPcoeff(:,:,dz) = czero
-        !
-        KPcoeff(:,:,dx2) = reshape( &
-                                  (/ P+Q   ,    czero ,  -R1 ,  czero , czero , +R1p  ,&
-                                     czero ,    P-Q   , czero,  -R1   , Qp    , czero ,&
-                                -conjg(R1) ,    czero ,  P-Q ,  czero ,  &
-                                     czero ,-conjg(R1), czero,  P+Q     /),  (/6, 6/) )
-        !
-        KPcoeff(:,:,dy2) = reshape( &
-                                  (/ P+Q   ,    czero ,   R1 ,  czero , czero , -R1p  ,&
-                                     czero ,    P-Q   , czero,   R1   , Qp    , czero ,&
-                                 conjg(R1) ,    czero ,  P-Q ,  czero , &
-                                     czero , conjg(R1), czero,  P+Q     /),  (/6, 6/) )
-                                             
-        KPcoeff(:,:,dz2) = reshape( &
-                                  (/ P-2.0*Q ,    czero , czero   ,  czero , czero , czero, &
-                                     czero   ,  P+2.0*Q , czero   ,  czero ,-2.0*Qp, czero, &
-                                     czero   ,    czero , P+2.0*Q ,  czero ,  &
-                                     czero   ,    czero , czero   ,  P-2.0*Q  /),  (/6, 6/) )                                     
-        KPcoeff(:,:,dxdy) = reshape( &
-                                  (/ czero ,    czero ,  R2 ,  czero , czero , -R2p , &
-                                     czero ,    czero , czero,  R2   , czero , czero, &
-                                 conjg(R2) ,    czero , czero, czero ,  &
-                                     czero , conjg(R2), czero, czero    /),  (/6, 6/) )
-                                             
-        KPcoeff(:,:,dxdz) = reshape( &
-                                  (/ czero ,    -S ,  czero  ,  czero ,   Sp , czero , &
-                                -conjg(S)  , czero ,  czero  ,  czero , czero, Sp2   , &
-                                     czero , czero ,  czero  ,   S    , &
-                                     czero , czero , conjg(S),  czero   /),  (/6, 6/) )
-                                                                                          
-        KPcoeff(:,:,dydz) = reshape( &
-                                  (/ czero , c1i*S ,  czero     ,  czero , -c1i*Sp, czero    ,&
-                              conjg(c1i*S) , czero ,  czero     ,  czero , czero  , -c1i*Sp2 ,&
-                                     czero , czero ,  czero     ,  c1i*S , &
-                                     czero , czero ,conjg(c1i*S),  czero   /),  (/6, 6/) )
-                    
+        do i = 1,num_k
+          KPcoeff(:,:,i) = reshape( &
+                (/ P(i)+Q(i),      -S(i),      R(i) ,    czero ,         S(i)/sq2 ,        -sq2*R(i) ,&
+                     czero  ,  P(i)-Q(i),     czero ,     R(i) ,         sq2*Q(i) ,      -sq3o2*S(i) ,&
+                     czero  ,    czero  , P(i)-Q(i) ,     S(i) ,-sq3o2*conjg(S(i)),      -sq2*Q(i)   ,&
+                     czero  ,    czero  ,   czero   , P(i)+Q(i), sq2*conjg( R(i) ), conjg( S(i) )/sq2,&
+                     czero  ,    czero  ,   czero   ,   czero  ,         P(i)+D(i),         czero    ,&
+                     czero  ,    czero  ,   czero   ,   czero  ,          czero   ,      P(i)+D(i) /),&
+                (/6, 6/) )
+          do n=1,6
+            do m=1,n-1
+                KPcoeff(m,n,i) = conjg( KPcoeff(n,m,i) )               
+            enddo
+          enddo
+        enddo                    
     end subroutine generate_LK6
 
 
@@ -462,4 +452,5 @@ CONTAINS
     END FUNCTION eigv
 
 
+    
 end module kpHam
