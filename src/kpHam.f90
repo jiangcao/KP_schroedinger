@@ -8,10 +8,11 @@ module kpHam
     private
     
     public :: read_KP_coeff, save_KP_coeff
-    public :: save_Ham_blocks
+    public :: save_Ham_blocks, save_matrix
     public :: calc_bands_at, calc_KP_block, calc_kpbands_at
     public :: generate_LK4,generate_LK6
-    public :: test_bandstructure
+    public :: build_wire_ham_blocks
+    public :: test_bandstructure, test_transport_bandstructure
     
 
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
@@ -41,17 +42,67 @@ module kpHam
 
 CONTAINS
 
+    ! build the Hamiltonian blocks for a wire structure
+    !   use KPcoeff. table, wire direction can be picked from x-y-z
+    subroutine build_wire_ham_blocks(nbnd,KPcoeff, dd, wire_direction, Ny, Nz, H00, H10)
+        integer,intent(in)::nbnd ! number of bands
+        complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table        
+        real(8), intent(in) :: dd(3) ! discretization step size in x-y-z
+        integer, intent(in) :: wire_direction ! wire direction 1-3
+        integer, intent(in) :: Ny,Nz ! number of points in the cross-section
+        complex(8), intent(out), dimension(Ny*Nz*nbnd,Ny*Nz*nbnd) :: H00,H10 ! Ham blocks of the wire
+        ! ----
+        complex(8)::Hij(nbnd,nbnd)
+        integer:: x(3),y(3),z(3),i(3),j(3), m,n,p,q, row,col
+        select case( wire_direction )
+            case default  ! x
+                x = (/1,0,0/)
+                y = (/0,1,0/)
+                z = (/0,0,1/)
+            case(2) ! along y
+                x = (/0,1,0/) 
+                y = (/0,0,1/)
+                z = (/1,0,0/)
+            case(3) ! along z
+                x = (/0,0,1/) 
+                y = (/1,0,0/)
+                z = (/0,1,0/)
+        end select
+        H00 = czero
+        H10 = czero
+        do m = 1,Ny
+          do n = 1,Nz
+            row = (m-1)*Nz + n
+            do p = 1,Ny
+              do q = 1,Nz
+                col = (p-1)*Nz + q
+                i = (m-1) * y + (n-1) * z
+                j = (p-1) * y + (q-1) * z
+                call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
+                H00( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:)
+                !
+                j = (p-1) * y + (q-1) * z + x
+                call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
+                H10( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:)
+              enddo
+            enddo
+          enddo
+        enddo
+    end subroutine build_wire_ham_blocks
+
+
+
     ! generate Luttinger 6-band KP model coefficients
-    !   PRB 98, 155319 (2018) Eq (D1) (D4)
+    !   PRB 98, 155319 (2018) Eq (D1) (D4), correct an error in the paper in the R term
     subroutine generate_LK6(KPcoeff, gam1,gam2,gam3,delta,kap)        
         real(8), intent(in) :: gam1,gam2,gam3,kap,delta
         complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
         ! ----
         complex(8),dimension(num_k) :: P,Q,S,R,D
-        integer::i,m,n
+        integer::i,m,n  
         real(8),parameter :: sq2 = sqrt(2.0d0)
         real(8),parameter :: sq3o2 = sqrt(3.0d0/2.0d0)
-        ! construct the coeff. table in another (better) way
+        ! construct the coeff. table   
         P=czero
         Q=czero
         S=czero
@@ -176,6 +227,23 @@ CONTAINS
         enddo
         close(11)
     end subroutine save_Ham_blocks
+    
+    
+    ! save a complex matrix to a file in row-column-value format
+    subroutine save_matrix(filename, nm, Mat)
+        character(len=*),intent(in)::filename ! file name
+        integer,intent(in)::nm ! number of bands
+        complex(8), intent(in) :: Mat(nm,nm) ! matrix        
+        ! ----
+        integer::i,j        
+        open(unit=11, file=filename, status='unknown')                
+        do i=1,nm
+            do j=1,nm
+                write(11,'(2I10,2E18.6)') i,j,dble(Mat(i,j)),aimag(Mat(i,j))
+            enddo
+        enddo        
+        close(11)
+    end subroutine save_matrix
 
 
     ! compute the bands at a k-point before discretization
@@ -287,9 +355,9 @@ CONTAINS
         ! onsite 
         if (all(ij == (/0,0,0/))) then
           coeff(const) = 1.0d0
-          coeff(dx2) = -2.0d0/ddx/ddx * (-c1i)**2
-          coeff(dy2) = -2.0d0/ddy/ddy * (-c1i)**2
-          coeff(dz2) = -2.0d0/ddz/ddz * (-c1i)**2
+          coeff(dx2) = -2.0d0/ddx**2 * (-c1i)**2
+          coeff(dy2) = -2.0d0/ddy**2 * (-c1i)**2
+          coeff(dz2) = -2.0d0/ddz**2 * (-c1i)**2
         endif
         ! +x
         if (all(ij == (/1,0,0/))) then
@@ -517,6 +585,36 @@ CONTAINS
         close(11)
         deallocate(Ek)
     end subroutine test_bandstructure
+    
+    
+    subroutine test_transport_bandstructure(H00,H10,nbnd,ny,nz,dx)
+        implicit none
+        complex(8),intent(in),dimension(ny*nz*nbnd,ny*nz*nbnd) :: H00, H10
+        integer,intent(in) :: ny,nz,nbnd
+        real(8),intent(in) :: dx
+        ! ----
+        complex(8)::Ham(ny*nz*nbnd,ny*nz*nbnd)
+        real(8)::kx,Ek(ny*nz*nbnd),kpt1,kpt2,kpt
+        integer::nk,ik,ib
+        !
+        nk = 100
+        open(unit=10,file='Boundary_ek.dat',status='unknown')        
+        !
+        kpt1 = -1.0d9 
+        kpt2 = +1.0d9 
+        do ik = 1,nk
+          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
+          Ham(:,:) = H00(:,:) + exp( - c1i * kpt * dx )*H10(:,:) &
+                              + exp( + c1i * kpt * dx )*transpose(conjg(H10(:,:)))
+          !
+          Ek(:) = eig(ny*nz*nbnd,Ham)
+          !
+          do ib=1,ny*nz*nbnd
+            write(10,'(2E18.6)') dble(ik)/dble(nk), Ek(ib)
+          enddo
+        enddo
+        close(10)
+    end subroutine test_transport_bandstructure
     
     
 end module kpHam
