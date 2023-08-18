@@ -241,9 +241,45 @@ CONTAINS
             do j=1,nm
                 write(11,'(2I10,2E18.6)') i,j,dble(Mat(i,j)),aimag(Mat(i,j))
             enddo
+            write(11,*)
         enddo        
         close(11)
     end subroutine save_matrix
+    
+    ! save a complex matrix to a file in row-column-value format
+    subroutine save_matrix2(filename, n, m, Mat)
+        character(len=*),intent(in)::filename ! file name
+        integer,intent(in)::n,m ! size
+        complex(8), intent(in) :: Mat(n,m) ! matrix        
+        ! ----
+        integer::i,j        
+        open(unit=11, file=filename, status='unknown')                
+        do i=1,n
+            do j=1,m
+                write(11,'(2I10,2E18.6)') i,j,dble(Mat(i,j)),aimag(Mat(i,j))
+            enddo
+            write(11,*)
+        enddo        
+        close(11)
+    end subroutine save_matrix2
+    
+    
+    ! save a wavefunction 
+    subroutine save_wavefunc(filename, n, m, Mat)
+        character(len=*),intent(in)::filename ! file name
+        integer,intent(in)::n,m ! size
+        complex(8), intent(in) :: Mat(n,m) ! matrix        
+        ! ----
+        integer::i,j        
+        open(unit=11, file=filename, status='unknown')                
+        do i=1,n
+            do j=1,m
+                write(11,'(2I10,1E18.6)') i,j,(abs(Mat(i,j)))**2
+            enddo
+            write(11,*)
+        enddo        
+        close(11)
+    end subroutine save_wavefunc
 
 
     ! compute the bands at a k-point before discretization
@@ -593,7 +629,7 @@ CONTAINS
         integer,intent(in) :: ny,nz,nbnd
         real(8),intent(in) :: dx
         ! ----
-        complex(8)::Ham(ny*nz*nbnd,ny*nz*nbnd)
+        complex(8)::Ham(ny*nz*nbnd,ny*nz*nbnd),V(nbnd,nz,ny)
         real(8)::kx,Ek(ny*nz*nbnd),kpt1,kpt2,kpt
         integer::nk,ik,ib
         !
@@ -612,8 +648,24 @@ CONTAINS
           do ib=1,ny*nz*nbnd
             write(10,'(2E18.6)') dble(ik)/dble(nk), Ek(ib)
           enddo
-        enddo
+        enddo            
         close(10)
+        kpt=0.0d0
+        Ham(:,:) = H00(:,:) + H10(:,:) + transpose(conjg(H10(:,:)))
+        Ek(:) = eigv(ny*nz*nbnd,Ham)
+        ! first eigen vector
+        V = reshape( Ham(:,1) ,(/nbnd, nz, ny/) )
+        call save_wavefunc( 'vec1_1.dat', nz,ny, V(1,:,:) )
+        call save_wavefunc( 'vec1_2.dat', nz,ny, V(2,:,:) )
+        call save_wavefunc( 'vec1_3.dat', nz,ny, V(3,:,:) )
+        call save_wavefunc( 'vec1_4.dat', nz,ny, V(4,:,:) )
+        ! second eigen vector
+        V = reshape( Ham(:,2) ,(/nbnd, nz, ny/) )
+        call save_wavefunc( 'vec2_1.dat', nz,ny, V(1,:,:) )
+        call save_wavefunc( 'vec2_2.dat', nz,ny, V(2,:,:) )
+        call save_wavefunc( 'vec2_3.dat', nz,ny, V(3,:,:) )
+        call save_wavefunc( 'vec2_4.dat', nz,ny, V(4,:,:) )
+        
     end subroutine test_transport_bandstructure
     
     
