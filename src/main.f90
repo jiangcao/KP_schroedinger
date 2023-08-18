@@ -17,6 +17,7 @@ open(unit=10,file='input',status='unknown')
  read(10,*) delta
  read(10,*) direction
  read(10,*) Ny,Nz
+ read(10,*) dd
 close(10)
 
 allocate(KPcoeff(nbnd,nbnd,10))
@@ -31,9 +32,6 @@ end if
 
 call save_KP_coeff('kpcoeff.dat', nbnd, KPcoeff)
 
-
-dd = (/ 1.0d-9 , 1.0d-9 , 2.5d-10 /)
-
 call save_Ham_blocks('Ham_blocks.dat', nbnd, KPcoeff,dd)
 
 call test_bandstructure(nbnd,KPcoeff,dd)
@@ -43,8 +41,11 @@ allocate(H10(Ny*Nz*nbnd,Ny*Nz*nbnd))
 
 call build_wire_ham_blocks(nbnd,KPcoeff, dd, direction, Ny, Nz, H00, H10)
 
-call save_matrix('Hii.dat', Ny*Nz*nbnd, H00)
-call save_matrix('H1i.dat', Ny*Nz*nbnd, H10)
+! call save_matrix('Hii.dat', Ny*Nz*nbnd, H00)
+! call save_matrix('H1i.dat', Ny*Nz*nbnd, H10)
+
+call save_matrix_csr('Hii_csr.dat', Ny*Nz*nbnd, Ny*Nz*nbnd, H00)
+call save_matrix_csr('H1i_csr.dat', Ny*Nz*nbnd, Ny*Nz*nbnd, H10)
 
 call test_transport_bandstructure(H00,H10,nbnd,ny,nz,dd(direction))
 

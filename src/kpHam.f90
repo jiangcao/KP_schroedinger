@@ -8,7 +8,7 @@ module kpHam
     private
     
     public :: read_KP_coeff, save_KP_coeff
-    public :: save_Ham_blocks, save_matrix
+    public :: save_Ham_blocks, save_matrix, save_matrix_csr, load_matrix_csr
     public :: calc_bands_at, calc_KP_block, calc_kpbands_at
     public :: generate_LK4,generate_LK6
     public :: build_wire_ham_blocks
@@ -263,6 +263,66 @@ CONTAINS
         close(11)
     end subroutine save_matrix2
     
+    ! save a complex sparse matrix to a file in CSR format
+    subroutine save_matrix_csr(filename, n, m, Mat)
+        character(len=*),intent(in)::filename ! file name
+        integer,intent(in)::n,m ! size
+        complex(8), intent(in) :: Mat(n,m) ! matrix           
+        ! ----
+        integer::i,j,nnz,ind(n),k        
+        nnz = count(Mat /= czero) ! number of nonzero elements        
+        open(unit=11, file=filename, status='unknown')   
+        write(11,*) nnz          
+        k=1   
+        do i=1,n
+            ind(i)=k      
+            do j=1,m
+                if (mat(i,j) /= czero) then
+                  write(11,'(1I12,2E18.6)')j, dble(Mat(i,j)),aimag(Mat(i,j))
+                  k=k+1
+                endif                
+            enddo                  
+        enddo    
+        write(11,'(I12)') ind(:)
+        close(11)
+    end subroutine save_matrix_csr
+    
+    
+    ! load a complex sparse matrix from a file in CSR format
+    subroutine load_matrix_csr(filename, n, m, Mat)
+        character(len=*),intent(in)::filename ! file name
+        integer,intent(in)::n,m ! size
+        complex(8), intent(out) :: Mat(n,m) ! matrix           
+        ! ----
+        integer::i,j,nnz,ind(n),k           
+        integer,allocatable::col(:)
+        complex(8),allocatable::csr(:)
+        real(8)::re,im     
+        open(unit=11, file=filename, status='unknown')   
+        read(11,*) nnz          
+        allocate(csr(nnz))
+        allocate(col(nnz))
+        do i=1,nnz
+          read(11,*)j, re, im
+          csr(i)=dcmplx(re,im)
+          col(i)=j
+        enddo
+        do i=1,n
+            read(11,'(I12)') ind(i)                
+        enddo
+        close(11)
+        Mat=czero
+        do i=1,n-1                
+            do j=ind(i),ind(i+1)-1
+                Mat(i,col(j))=csr(j)
+            enddo
+        enddo    
+        do j=ind(n),nnz
+            Mat(n,col(j))=csr(j)
+        enddo
+        deallocate(col,csr)
+    end subroutine load_matrix_csr
+
     
     ! save a wavefunction 
     subroutine save_wavefunc(filename, n, m, Mat)
@@ -554,6 +614,9 @@ CONTAINS
         nk = 1000
         allocate(Ek(nbnd))
         !
+        print *
+        print *, ' Computing bulk bandstructure ...'
+        !
         open(unit=10,file='ek0.dat',status='unknown')
         open(unit=11,file='ek.dat',status='unknown')
         !
@@ -634,6 +697,8 @@ CONTAINS
         integer::nk,ik,ib
         !
         nk = 100
+        print *
+        print *, ' Computing wire bandstructure ...'
         open(unit=10,file='Boundary_ek.dat',status='unknown')        
         !
         kpt1 = -1.0d9 
@@ -651,7 +716,7 @@ CONTAINS
         enddo            
         close(10)
         kpt=0.0d0
-        Ham(:,:) = H00(:,:) + H10(:,:) + transpose(conjg(H10(:,:)))
+        Ham(:,:) = H00(:,:) + H10(:,:) + transpose(conjg(H10(:,:)))        
         Ek(:) = eigv(ny*nz*nbnd,Ham)
         ! first eigen vector
         V = reshape( Ham(:,1) ,(/nbnd, nz, ny/) )
@@ -665,7 +730,7 @@ CONTAINS
         call save_wavefunc( 'vec2_2.dat', nz,ny, V(2,:,:) )
         call save_wavefunc( 'vec2_3.dat', nz,ny, V(3,:,:) )
         call save_wavefunc( 'vec2_4.dat', nz,ny, V(4,:,:) )
-        
+        !
     end subroutine test_transport_bandstructure
     
     
