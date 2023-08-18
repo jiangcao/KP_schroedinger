@@ -1,6 +1,30 @@
-!!!!!!!!!!!!!!!! AUTHOR: Jiang Cao
-!!!!!!!!!!!!!!!! DATE: 08/2023
-
+! Copyright (c) 2023 Jiang Cao, ETH Zurich 
+! All rights reserved.
+!
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions are met:
+!
+! 1. Redistributions of source code must retain the above copyright notice,
+!    this list of conditions and the following disclaimer.
+! 2. Redistributions in binary form must reproduce the above copyright notice,
+!    this list of conditions and the following disclaimer in the documentation
+!    and/or other materials provided with the distribution.
+! 3. Neither the name of the copyright holder nor the names of its contributors 
+!    may be used to endorse or promote products derived from this software without 
+!    specific prior written permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+! AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+! IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+! ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+! LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+! CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+! SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+! INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+! CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+! ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+! POSSIBILITY OF SUCH DAMAGE. 
+!
 module kpHam
 
     implicit none 
@@ -90,6 +114,39 @@ CONTAINS
         enddo
     end subroutine build_wire_ham_blocks
 
+    
+    ! build the device Hamiltonian 
+    subroutine build_device_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,Ham)
+        integer,intent(in)::nbnd ! number of bands
+        complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table        
+        real(8), intent(in) :: dd(3) ! discretization step size in x-y-z        
+        integer, intent(in) :: Nx,Ny,Nz ! number of points
+        complex(8), intent(out), dimension(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd) :: Ham ! device Hamiltonian        
+        ! ----
+        complex(8)::Hij(nbnd,nbnd)
+        integer:: x(3),y(3),z(3),i(3),j(3), m,n,l,p,q,o, row,col
+        x = (/1,0,0/)
+        y = (/0,1,0/)
+        z = (/0,0,1/)
+        do l = 1,Nx
+          do m = 1,Ny
+            do n = 1,Nz            
+              row = (m-1)*Nz*Ny + (n-1)*Ny + l
+              do o = 1,Nx
+                do p = 1,Ny
+                  do q = 1,Nz
+                    col = (p-1)*Nz*Ny + (q-1)*Ny + l
+                    i = (m-1) * y + (n-1) * z + (l-1) * x
+                    j = (p-1) * y + (q-1) * z + (o-1) * x
+                    call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
+                    Ham( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:)                    
+                  enddo
+                enddo
+              enddo
+            enddo
+          enddo
+        enddo
+    end subroutine build_device_ham 
 
 
     ! generate Luttinger 6-band KP model coefficients
@@ -573,6 +630,42 @@ CONTAINS
     END FUNCTION eig
     
     
+    ! calculate all eigen-values and eigen-vectors of a Hermitian matrix A 
+    !   within a given search interval, a wrapper to the FEAST function in MKL https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-fortran/2023-1/feast-syev-feast-heev.html   
+    !   upon return A(:,1:m) will be modified and contains the eigen-vectors
+    FUNCTION eigv_feast(NN, A, emin, emax, m)    
+        include 'mkl.fi'
+        INTEGER, INTENT(IN) :: NN
+        COMPLEX(8), INTENT(INOUT), DIMENSION(:,:) :: A
+        REAL(8), INTENT(IN) :: emin, emax ! lower and upper bounds of the interval to be searched for eigenvalues
+        REAL(8) :: eigv_feast(NN)
+        integer,intent(out) :: m ! total number of eigenvalues found
+        ! -----        
+        real(8) :: epsout
+        integer :: fpm(128), m0, loop, info
+        complex(8),allocatable :: x(:,:)
+        real(8), allocatable :: w(:), res(:)
+        m0=min(50,nn)
+        allocate(x(nn,m0))
+        allocate(w(m0))
+        allocate(res(m0))
+        !
+        call feastinit (fpm)
+        fpm(1)=1 ! print runtime status to the screen
+        !
+        call zfeast_heev('F',nn,A,nn,fpm,epsout,loop,emin,emax,m0,W,x,m,res, info)        
+        !
+        if (INFO.ne.0)then
+        write(*,*)'SEVERE WARNING: zfeast_heev HAS FAILED. INFO=',INFO
+        call abort
+        endif
+        eigv_feast(1:m)=W(1:m)
+        A(:,1:m) = x(:,1:m)
+        deallocate(x,w,res)
+    END FUNCTION eigv_feast
+    
+    
+    
     ! calculate eigen-values and eigen-vectors of a Hermitian matrix A
     !   upon return A will be modified and contains the eigen-vectors
     FUNCTION eigv(NN, A)    
@@ -694,7 +787,7 @@ CONTAINS
         ! ----
         complex(8)::Ham(ny*nz*nbnd,ny*nz*nbnd),V(nbnd,nz,ny)
         real(8)::kx,Ek(ny*nz*nbnd),kpt1,kpt2,kpt
-        integer::nk,ik,ib
+        integer::nk,ik,ib,m
         !
         nk = 100
         print *
@@ -708,16 +801,17 @@ CONTAINS
           Ham(:,:) = H00(:,:) + exp( - c1i * kpt * dx )*H10(:,:) &
                               + exp( + c1i * kpt * dx )*transpose(conjg(H10(:,:)))
           !
-          Ek(:) = eig(ny*nz*nbnd,Ham)
+          !Ek(:) = eig(ny*nz*nbnd,Ham)
+          Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=1.0d0, m=m)  
           !
-          do ib=1,ny*nz*nbnd
+          do ib=1,m
             write(10,'(2E18.6)') dble(ik)/dble(nk), Ek(ib)
           enddo
         enddo            
         close(10)
         kpt=0.0d0
         Ham(:,:) = H00(:,:) + H10(:,:) + transpose(conjg(H10(:,:)))        
-        Ek(:) = eigv(ny*nz*nbnd,Ham)
+        Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=1.0d0, m=m)
         ! first eigen vector
         V = reshape( Ham(:,1) ,(/nbnd, nz, ny/) )
         call save_wavefunc( 'vec1_1.dat', nz,ny, V(1,:,:) )
