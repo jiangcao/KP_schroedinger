@@ -35,8 +35,9 @@ module kpHam
     public :: save_Ham_blocks, save_matrix, save_matrix_csr, load_matrix_csr
     public :: calc_bands_at, calc_KP_block, calc_kpbands_at
     public :: generate_LK4,generate_LK6
-    public :: build_wire_ham_blocks
-    public :: test_bandstructure, test_transport_bandstructure
+    public :: build_wire_ham_blocks, build_dot_ham
+    public :: test_bandstructure, test_transport_bandstructure, test_schroedinger
+    public :: eigv_feast
     
 
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
@@ -116,7 +117,7 @@ CONTAINS
 
     
     ! build the device Hamiltonian 
-    subroutine build_device_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,Ham)
+    subroutine build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,Ham)
         integer,intent(in)::nbnd ! number of bands
         complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table        
         real(8), intent(in) :: dd(3) ! discretization step size in x-y-z        
@@ -131,11 +132,11 @@ CONTAINS
         do l = 1,Nx
           do m = 1,Ny
             do n = 1,Nz            
-              row = (m-1)*Nz*Ny + (n-1)*Ny + l
+              row = (l-1)*Ny*Nz + (m-1)*Nz + n
               do o = 1,Nx
                 do p = 1,Ny
                   do q = 1,Nz
-                    col = (p-1)*Nz*Ny + (q-1)*Ny + l
+                    col = (o-1)*Ny*Nz + (p-1)*Nz + q
                     i = (m-1) * y + (n-1) * z + (l-1) * x
                     j = (p-1) * y + (q-1) * z + (o-1) * x
                     call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
@@ -146,7 +147,7 @@ CONTAINS
             enddo
           enddo
         enddo
-    end subroutine build_device_ham 
+    end subroutine build_dot_ham 
 
 
     ! generate Luttinger 6-band KP model coefficients
@@ -645,7 +646,7 @@ CONTAINS
         integer :: fpm(128), m0, loop, info
         complex(8),allocatable :: x(:,:)
         real(8), allocatable :: w(:), res(:)
-        m0=min(50,nn)
+        m0=max(nn/10,1000)
         allocate(x(nn,m0))
         allocate(w(m0))
         allocate(res(m0))
@@ -653,7 +654,7 @@ CONTAINS
         call feastinit (fpm)
         fpm(1)=1 ! print runtime status to the screen
         !
-        call zfeast_heev('F',nn,A,nn,fpm,epsout,loop,emin,emax,m0,W,x,m,res, info)        
+        call zfeast_heev('U',nn,A,nn,fpm,epsout,loop,emin,emax,m0,W,x,m,res, info)        
         !
         if (INFO.ne.0)then
         write(*,*)'SEVERE WARNING: zfeast_heev HAS FAILED. INFO=',INFO
@@ -701,10 +702,12 @@ CONTAINS
         real(8), intent(in) :: dd(3) ! discretization step size in x-y-z
         complex(8),intent(in)::KPcoeff(nbnd,nbnd,num_k)
         ! ----
-        real(8)::kpt(3),kpt1(3),kpt2(3)
+        real(8)::kpt(3),kpt1(3),kpt2(3),kmin,kmax
         real(8),allocatable::Ek(:)
         integer :: nk,ik            
         nk = 1000
+        kmin=-2.0d9
+        kmax=+2.0d9
         allocate(Ek(nbnd))
         !
         print *
@@ -713,8 +716,8 @@ CONTAINS
         open(unit=10,file='ek0.dat',status='unknown')
         open(unit=11,file='ek.dat',status='unknown')
         !
-        kpt1 = (/ -1.0d9 , 0.0d0 , 0.0d0 /)
-        kpt2 = (/ +1.0d9 , 0.0d0 , 0.0d0 /)
+        kpt1 = (/ kmin , 0.0d0 , 0.0d0 /)
+        kpt2 = (/ kmax , 0.0d0 , 0.0d0 /)
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
@@ -723,8 +726,8 @@ CONTAINS
           write(10,'(7E18.6)') dble(ik)/dble(nk), Ek          
         enddo
         !
-        kpt1 = (/ 0.0d9 , -1.0d9 , 0.0d0 /)
-        kpt2 = (/ 0.0d9 ,  1.0d9 , 0.0d0 /)
+        kpt1 = (/ 0.0d9 , kmin , 0.0d0 /)
+        kpt2 = (/ 0.0d9 , kmax , 0.0d0 /)
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
@@ -733,8 +736,8 @@ CONTAINS
           write(10,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
         enddo
         !
-        kpt1 = (/ 0.0d9 , 0.0d9 , -1.0d9 /)
-        kpt2 = (/ 0.0d9 , 0.0d9 ,  1.0d9 /)
+        kpt1 = (/ 0.0d9 , 0.0d9 , kmin /)
+        kpt2 = (/ 0.0d9 , 0.0d9 , kmax /)
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1                    
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
@@ -743,8 +746,8 @@ CONTAINS
           write(10,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
         enddo
         !
-        kpt1 = (/ -1.0d9 , 0.0d9 , -1.0d9 /)
-        kpt2 = (/  1.0d9 , 0.0d9 ,  1.0d9 /)
+        kpt1 = (/ kmin , 0.0d9 , kmin /)
+        kpt2 = (/ kmax , 0.0d9 , kmax /)
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1    
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
@@ -753,8 +756,8 @@ CONTAINS
           write(10,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
         enddo
         !
-        kpt1 = (/ -1.0d9 , -1.0d9 , 0.0d9 /)
-        kpt2 = (/  1.0d9 ,  1.0d9 , 0.0d9 /)
+        kpt1 = (/ kmin , kmin , 0.0d9 /)
+        kpt2 = (/ kmax , kmax , 0.0d9 /)
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
@@ -763,8 +766,8 @@ CONTAINS
           write(10,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
         enddo
         !
-        kpt1 = (/ -1.0d9 , -1.0d9 , -1.0d9 /)
-        kpt2 = (/  1.0d9 ,  1.0d9 ,  1.0d9 /)
+        kpt1 = (/ kmin , kmin , kmin /)
+        kpt2 = (/ kmax , kmax , kmax /)
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
@@ -789,20 +792,26 @@ CONTAINS
         real(8)::kx,Ek(ny*nz*nbnd),kpt1,kpt2,kpt
         integer::nk,ik,ib,m
         !
-        nk = 100
+        nk = 20
         print *
         print *, ' Computing wire bandstructure ...'
         open(unit=10,file='Boundary_ek.dat',status='unknown')        
         !
-        kpt1 = -1.0d9 
-        kpt2 = +1.0d9 
+        kpt1 = -2.0d9
+        kpt2 = +2.0d9 
         do ik = 1,nk
+          print *
+          print *, ik, '/', nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           Ham(:,:) = H00(:,:) + exp( - c1i * kpt * dx )*H10(:,:) &
                               + exp( + c1i * kpt * dx )*transpose(conjg(H10(:,:)))
           !
-          !Ek(:) = eig(ny*nz*nbnd,Ham)
-          Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=1.0d0, m=m)  
+          if ( ny*nz*nbnd < 1000 ) then
+            Ek(:) = eig(ny*nz*nbnd,Ham)
+            m = ny*nz*nbnd
+          else
+            Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=0.5d0, m=m)  
+          endif
           !
           do ib=1,m
             write(10,'(2E18.6)') dble(ik)/dble(nk), Ek(ib)
@@ -811,7 +820,11 @@ CONTAINS
         close(10)
         kpt=0.0d0
         Ham(:,:) = H00(:,:) + H10(:,:) + transpose(conjg(H10(:,:)))        
-        Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=1.0d0, m=m)
+        if ( ny*nz*nbnd < 1000 ) then
+          Ek(:) = eigv(ny*nz*nbnd,Ham)
+        else
+          Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=0.5d0, m=m)
+        endif
         ! first eigen vector
         V = reshape( Ham(:,1) ,(/nbnd, nz, ny/) )
         call save_wavefunc( 'vec1_1.dat', nz,ny, V(1,:,:) )
@@ -826,6 +839,53 @@ CONTAINS
         call save_wavefunc( 'vec2_4.dat', nz,ny, V(4,:,:) )
         !
     end subroutine test_transport_bandstructure
+    
+    
+    subroutine test_schroedinger(H,nbnd,nx,ny,nz,emin,emax)
+        implicit none
+        complex(8),intent(inout),dimension(nx*ny*nz*nbnd,nx*ny*nz*nbnd) :: H
+        integer,intent(in) :: nx,ny,nz,nbnd        
+        real(8),intent(in) :: emin, emax
+        ! ----
+        complex(8)::V(nbnd,nz,ny,nx)
+        real(8)::Ek(nx*ny*nz*nbnd)
+        integer::m
+        !        
+        print *
+        print *, ' Computing Schoedinger ...'
+        !        
+        Ek(:) = eigv_feast(nx*ny*nz*nbnd,H, emin=0.0d0, emax=1.0d0, m=m)
+        open(unit=10,file='dot_en.dat',status='unknown')  
+        write(10,'(8E18.6)') Ek(1:m)      
+        close(10)
+        ! first eigen vector
+        V = reshape( H(:,1) ,(/nbnd, nz, ny, nx/) )
+        call save_wavefunc( 'dot1_1_yz.dat', nz,ny, V(1,:,:,nx/2) )
+        call save_wavefunc( 'dot1_2_yz.dat', nz,ny, V(2,:,:,nx/2) )
+        call save_wavefunc( 'dot1_3_yz.dat', nz,ny, V(3,:,:,nx/2) )
+        call save_wavefunc( 'dot1_4_yz.dat', nz,ny, V(4,:,:,nx/2) )
+        ! first eigen vector
+        V = reshape( H(:,1) ,(/nbnd, nz, ny, nx/) )
+        call save_wavefunc( 'dot1_1_xy.dat', nx,ny, V(1,nz/2,:,:) )
+        call save_wavefunc( 'dot1_2_xy.dat', nx,ny, V(2,nz/2,:,:) )
+        call save_wavefunc( 'dot1_3_xy.dat', nx,ny, V(3,nz/2,:,:) )
+        call save_wavefunc( 'dot1_4_xy.dat', nx,ny, V(4,nz/2,:,:) )
+        !
+        ! second eigen vector
+        V = reshape( H(:,2) ,(/nbnd, nz, ny, nx/) )
+        call save_wavefunc( 'dot2_1_yz.dat', nz,ny, V(1,:,:,nx/2) )
+        call save_wavefunc( 'dot2_2_yz.dat', nz,ny, V(2,:,:,nx/2) )
+        call save_wavefunc( 'dot2_3_yz.dat', nz,ny, V(3,:,:,nx/2) )
+        call save_wavefunc( 'dot2_4_yz.dat', nz,ny, V(4,:,:,nx/2) )
+        ! second eigen vector
+        V = reshape( H(:,2) ,(/nbnd, nz, ny, nx/) )
+        call save_wavefunc( 'dot2_1_xy.dat', nx,ny, V(1,nz/2,:,:) )
+        call save_wavefunc( 'dot2_2_xy.dat', nx,ny, V(2,nz/2,:,:) )
+        call save_wavefunc( 'dot2_3_xy.dat', nx,ny, V(3,nz/2,:,:) )
+        call save_wavefunc( 'dot2_4_xy.dat', nx,ny, V(4,nz/2,:,:) )        
+        !
+        print *, Ek(1:m)
+    end subroutine test_schroedinger
     
     
 end module kpHam

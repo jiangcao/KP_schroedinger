@@ -32,7 +32,7 @@ implicit none
 integer :: nbnd
 real(8)::gam1,gam2,gam3,delta,kappa,dd(3),kpt(3),Ek(6),kpt1(3),kpt2(3)
 complex(8),allocatable::KPcoeff(:,:,:),H00(:,:),H10(:,:)
-integer :: nk, ny, nz, direction
+integer :: nk, nx, ny, nz, direction
 integer :: ik , num_cpu
 
 open(unit=10,file='input',status='unknown')
@@ -43,7 +43,7 @@ open(unit=10,file='input',status='unknown')
  read(10,*) kappa
  read(10,*) delta
  read(10,*) direction
- read(10,*) Ny,Nz
+ read(10,*) Nx,Ny,Nz
  read(10,*) dd
  read(10,*) num_cpu
 close(10)
@@ -79,7 +79,19 @@ call save_matrix_csr('H1i_csr.dat', Ny*Nz*nbnd, Ny*Nz*nbnd, H10)
 
 call test_transport_bandstructure(H00,H10,nbnd,ny,nz,dd(direction))
 
-deallocate(KPcoeff)
 deallocate(H10,H00)
+
+allocate(H00(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd))
+
+call build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,H00)
+
+call save_matrix_csr('Ham_csr.dat', Nx*Ny*Nz*nbnd, Nx*Ny*Nz*nbnd, H00)
+
+call test_schroedinger(H00,nbnd,nx,ny,nz,0.0d0,0.25d0)
+
+deallocate(H00)
+
+deallocate(KPcoeff)
+
 
 END PROGRAM main
