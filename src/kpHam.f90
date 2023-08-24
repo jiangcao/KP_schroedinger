@@ -116,13 +116,13 @@ CONTAINS
     end subroutine build_wire_ham_blocks
 
     
-    ! build the device Hamiltonian 
+    ! build the dot Hamiltonian 
     subroutine build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,Ham)
         integer,intent(in)::nbnd ! number of bands
         complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table        
         real(8), intent(in) :: dd(3) ! discretization step size in x-y-z        
         integer, intent(in) :: Nx,Ny,Nz ! number of points
-        complex(8), intent(out), dimension(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd) :: Ham ! device Hamiltonian        
+        complex(8), intent(out), dimension(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd) :: Ham ! dot Hamiltonian        
         ! ----
         complex(8)::Hij(nbnd,nbnd)
         integer:: x(3),y(3),z(3),i(3),j(3), m,n,l,p,q,o, row,col
@@ -860,29 +860,29 @@ CONTAINS
         close(10)
         ! first eigen vector
         V = reshape( H(:,1) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot1_1_yz.dat', nz,ny, V(1,:,:,nx/2) )
-        call save_wavefunc( 'dot1_2_yz.dat', nz,ny, V(2,:,:,nx/2) )
-        call save_wavefunc( 'dot1_3_yz.dat', nz,ny, V(3,:,:,nx/2) )
-        call save_wavefunc( 'dot1_4_yz.dat', nz,ny, V(4,:,:,nx/2) )
+        call save_wavefunc( 'dot1_1_yz.dat', nz,ny, V(1,:,:,max(nx/2,1)) )
+        call save_wavefunc( 'dot1_2_yz.dat', nz,ny, V(2,:,:,max(nx/2,1)) )
+        call save_wavefunc( 'dot1_3_yz.dat', nz,ny, V(3,:,:,max(nx/2,1)) )
+        call save_wavefunc( 'dot1_4_yz.dat', nz,ny, V(4,:,:,max(nx/2,1)) )
         ! first eigen vector
         V = reshape( H(:,1) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot1_1_xy.dat', nx,ny, V(1,nz/2,:,:) )
-        call save_wavefunc( 'dot1_2_xy.dat', nx,ny, V(2,nz/2,:,:) )
-        call save_wavefunc( 'dot1_3_xy.dat', nx,ny, V(3,nz/2,:,:) )
-        call save_wavefunc( 'dot1_4_xy.dat', nx,ny, V(4,nz/2,:,:) )
+        call save_wavefunc( 'dot1_1_xy.dat', nx,ny, V(1,max(nz/2,1),:,:) )
+        call save_wavefunc( 'dot1_2_xy.dat', nx,ny, V(2,max(nz/2,1),:,:) )
+        call save_wavefunc( 'dot1_3_xy.dat', nx,ny, V(3,max(nz/2,1),:,:) )
+        call save_wavefunc( 'dot1_4_xy.dat', nx,ny, V(4,max(nz/2,1),:,:) )
         !
         ! second eigen vector
         V = reshape( H(:,2) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot2_1_yz.dat', nz,ny, V(1,:,:,nx/2) )
-        call save_wavefunc( 'dot2_2_yz.dat', nz,ny, V(2,:,:,nx/2) )
-        call save_wavefunc( 'dot2_3_yz.dat', nz,ny, V(3,:,:,nx/2) )
-        call save_wavefunc( 'dot2_4_yz.dat', nz,ny, V(4,:,:,nx/2) )
+        call save_wavefunc( 'dot2_1_yz.dat', nz,ny, V(1,:,:,max(nx/2,1)) )
+        call save_wavefunc( 'dot2_2_yz.dat', nz,ny, V(2,:,:,max(nx/2,1)) )
+        call save_wavefunc( 'dot2_3_yz.dat', nz,ny, V(3,:,:,max(nx/2,1)) )
+        call save_wavefunc( 'dot2_4_yz.dat', nz,ny, V(4,:,:,max(nx/2,1)) )
         ! second eigen vector
         V = reshape( H(:,2) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot2_1_xy.dat', nx,ny, V(1,nz/2,:,:) )
-        call save_wavefunc( 'dot2_2_xy.dat', nx,ny, V(2,nz/2,:,:) )
-        call save_wavefunc( 'dot2_3_xy.dat', nx,ny, V(3,nz/2,:,:) )
-        call save_wavefunc( 'dot2_4_xy.dat', nx,ny, V(4,nz/2,:,:) )        
+        call save_wavefunc( 'dot2_1_xy.dat', nx,ny, V(1,max(nz/2,1),:,:) )
+        call save_wavefunc( 'dot2_2_xy.dat', nx,ny, V(2,max(nz/2,1),:,:) )
+        call save_wavefunc( 'dot2_3_xy.dat', nx,ny, V(3,max(nz/2,1),:,:) )
+        call save_wavefunc( 'dot2_4_xy.dat', nx,ny, V(4,max(nz/2,1),:,:) )        
         !
         print *, Ek(1:m)
     end subroutine test_schroedinger

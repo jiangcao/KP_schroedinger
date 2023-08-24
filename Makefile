@@ -3,7 +3,7 @@ MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.11
 FC90 = /usr/sepp/bin/ifort-2020-af
 #F90_FLAGS =  -r8 -check bounds -traceback -fpp 
 MACFLAGS = -L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib
-F90_FLAGS = -i8  -I"${MKLROOT}/include" -r8 -O2 -fpp -mkl -traceback  -qopenmp -qopt-matmul #  -check bounds  
+F90_FLAGS = -i8  -I"${MKLROOT}/include" -r8 -O2 -fpp -mkl -traceback  -qopenmp -qopt-matmul -check bounds  
 LIBS = -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a ${MKLROOT}/lib/intel64/libmkl_sequential.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -lpthread -lm -ldl
 
 # Modules directory
@@ -20,7 +20,7 @@ vpath %.o $(MODDIR)
 
 all: schrod.x 
 
-schrod.x : main.f90 mkl_dfti.o kpHam.o 
+schrod.x : main.f90 static.o mkl_dfti.o kpHam.o mod_string.o matrix_mod.o  Green_mod.o
 
 	$(FC90) -o $@ $< $(MODDIR)/*.o $(F90_FLAGS) $(LIBS) -module $(MODDIR)
 
