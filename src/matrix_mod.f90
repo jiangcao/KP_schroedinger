@@ -1,18 +1,42 @@
+! Copyright (c) 2023 Jiang Cao, ETH Zurich 
+! All rights reserved.
 !
-!   matrix_mod.f90
-!   matrix module
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions are met:
 !
-!   Created by Jiang Cao on 12/8/14.
-!   Copyright 2014 Jiang Cao. All rights reserved.
+! 1. Redistributions of source code must retain the above copyright notice,
+!    this list of conditions and the following disclaimer.
+! 2. Redistributions in binary form must reproduce the above copyright notice,
+!    this list of conditions and the following disclaimer in the documentation
+!    and/or other materials provided with the distribution.
+! 3. Neither the name of the copyright holder nor the names of its contributors 
+!    may be used to endorse or promote products derived from this software without 
+!    specific prior written permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+! AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+! IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+! ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+! LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+! CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+! SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+! INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+! CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+! ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+! POSSIBILITY OF SUCH DAMAGE. 
 !
 module matrix_mod
-use mod_string
+
 implicit none
 
 ! complex matrix type
 type cMatrix
     complex(8),allocatable :: m(:,:)
 end type
+
+complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
+complex(8), parameter :: czero  = dcmplx(0.0d0,0.0d0)
+complex(8), parameter :: c1i  = dcmplx(0.0d0,1.0d0)
 
 contains
 
@@ -251,7 +275,7 @@ if (size(A,1).ne.size(A,2))then
 write(*,*) 'Error in Trace, matrix not square'
 stop
 end if
-tr = dcmplx(0.0d0,0.0d0)
+tr = czero
 do i=1,size(A,1)
 tr = tr + A(i,i)
 end do
@@ -269,18 +293,6 @@ end do
 end do
 end subroutine print_matrix_r
 
-
-subroutine show_matrix_c(A)
-complex(8),intent(in),dimension(:,:) :: A
-integer :: ii,jj
-do ii = 1,size(A,1)
-    do jj = 1,size(A,2)
-!        write(*,'(A)',advance='no') ' ('//dbstring(dble(A(ii,jj)))//','//dbstring(aimag(A(ii,jj)))//') '
-       write(*,'(A)') ' ('//dbstring(dble(A(ii,jj)))//','//dbstring(aimag(A(ii,jj)))//') '
-    enddo
-    write(*,*)
-enddo
-end subroutine
 
 
 subroutine print_matrix_c(funit,A)
@@ -308,7 +320,16 @@ else
     allocate(ipiv(n))
     allocate(work(n*n))
     call zgetrf(n,n,A,n,ipiv,info)
-    call zgetri(n,A,n,ipiv,work,n*n,info)
+    if (info.ne.0) then
+      print*,'SEVERE warning: zgetrf failed, info=',info
+      A=czero
+    else
+      call zgetri(n,A,n,ipiv,work,n*n,info)
+      if (info.ne.0) then
+        print*,'SEVERE warning: zgetri failed, info=',info
+        A=czero
+      endif
+    endif
     deallocate(ipiv)
     deallocate(work)
 end if
@@ -341,13 +362,14 @@ else if((size(Id,1).ne.n).or.(size(Id,2).ne.n))then
     deallocate(Id)
     allocate(Id(n,n))
 end if
-Id=dcmplx(0.0d0,0.0d0)
+Id=czero
 do i=1,n
-    Id(i,i) = dcmplx(1.0d0,0.0d0)
+    Id(i,i) = cone
 end do
 end subroutine eye_c
 
-subroutine tridiagBloc_C(H00,Hu, H)
+
+subroutine tridiagToFull_C(H00,Hu, H)
 COMPLEX(8),intent(in),dimension(:,:,:) :: H00,Hu
 COMPLEX(8),intent(inout),allocatable:: H(:,:)
 integer :: m,n,l
@@ -376,9 +398,9 @@ do i=1,l
         H((i-1)*m+1:i*m,(i-2)*n+1:(i-1)*n) = conjg(TRANSPOSE(Hu(:,:,i-1)))
     end if
 enddo
-end subroutine tridiagBloc_C
+end subroutine tridiagToFull_C
 
-subroutine tridiagBloc_R(H00,Hu, H)
+subroutine tridiagToFull_R(H00,Hu, H)
 real(8),intent(in),dimension(:,:,:) :: H00,Hu
 real(8),intent(inout),Allocatable :: H(:,:)
 integer :: m,n,l
@@ -407,7 +429,7 @@ do i=1,l
         H((i-1)*m+1:i*m,(i-2)*n+1:(i-1)*n) = TRANSPOSE(Hu(:,:,i-1))
     end if
 enddo
-end subroutine tridiagBloc_R
+end subroutine tridiagToFull_R
 
 subroutine triMUL_C(A,B,C,R,trA,trB,trC)
 complex(8),intent(in),dimension(:,:) :: A,B,C

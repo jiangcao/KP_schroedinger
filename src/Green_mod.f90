@@ -1,15 +1,34 @@
+! Copyright (c) 2023 Jiang Cao, ETH Zurich 
+! All rights reserved.
 !
-!   Green_mod.f90
-!   Green Function solver module
+! Redistribution and use in source and binary forms, with or without
+! modification, are permitted provided that the following conditions are met:
 !
-!   Created by Jiang Cao on 12/7/14.
-!   Copyright 2014 Jiang Cao. All rights reserved.
+! 1. Redistributions of source code must retain the above copyright notice,
+!    this list of conditions and the following disclaimer.
+! 2. Redistributions in binary form must reproduce the above copyright notice,
+!    this list of conditions and the following disclaimer in the documentation
+!    and/or other materials provided with the distribution.
+! 3. Neither the name of the copyright holder nor the names of its contributors 
+!    may be used to endorse or promote products derived from this software without 
+!    specific prior written permission.
+!
+! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+! AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+! IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+! ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+! LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+! CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+! SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+! INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+! CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+! ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+! POSSIBILITY OF SUCH DAMAGE. 
 !
 module green_mod
+
 use matrix_mod, only : cMatrix, MUL_C, triMUL_c, size_cMatrix, trace_c, &
 & invert_c, alloc2_cmatrix, free2_cmatrix, init2_cmatrix, alloc_cmatrix
-use static
-use mod_string, only : dbstring, string
 
 implicit none
 
@@ -25,7 +44,8 @@ contains
 !=================================================================================
 !!                        Recursive Backward Green's solver                    
 subroutine rgf_backward(En,mul,mur,TEMPl,TEMPr,Hii,H1i,Sii,sigma_lesser_ph,&          
-                        sigma_r_ph,G_r,G_lesser,G_greater,Jdens,Gl,Gln,tr,tre)               
+                        sigma_r_ph,G_r,G_lesser,G_greater,Jdens,Gl,Gln,tr,tre)          
+use static                             
 type(cMatrix),intent(in) :: Hii(:),H1i(:),Sii(:),sigma_lesser_ph(:),sigma_r_ph(:)
 real(8),intent(in)       :: En,mul(:,:),mur(:,:),TEMPr(:,:),TEMPl(:,:)
 type(cMatrix),intent(inout):: G_greater(:),G_lesser(:),G_r(:),Jdens(:),Gl(:),Gln(:)
@@ -240,7 +260,9 @@ End Function ferm
 
 !=================================================================================
 !!                           Sancho-Rubio                                
-subroutine sancho(nm,E,S00,H00,H10,G00,GBB)                                      
+subroutine sancho(nm,E,S00,H00,H10,G00,GBB)          
+use static
+implicit none                            
 integer i,j,k,nm,nmax
 COMPLEX(8) :: z
 real(8) :: E,error
