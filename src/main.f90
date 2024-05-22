@@ -1,64 +1,44 @@
 ! Copyright (c) 2023 Jiang Cao, ETH Zurich 
 ! All rights reserved.
 !
-! Redistribution and use in source and binary forms, with or without
-! modification, are permitted provided that the following conditions are met:
-!
-! 1. Redistributions of source code must retain the above copyright notice,
-!    this list of conditions and the following disclaimer.
-! 2. Redistributions in binary form must reproduce the above copyright notice,
-!    this list of conditions and the following disclaimer in the documentation
-!    and/or other materials provided with the distribution.
-! 3. Neither the name of the copyright holder nor the names of its contributors 
-!    may be used to endorse or promote products derived from this software without 
-!    specific prior written permission.
-!
-! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-! AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-! IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-! ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-! LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-! CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-! SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-! INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-! CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-! ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-! POSSIBILITY OF SUCH DAMAGE. 
-!
 PROGRAM main
 use kpHam
+use math
 implicit none
 
 integer :: nbnd
-real(8)::gam1,gam2,gam3,delta,kappa,dd(3),kpt(3),Ek(6),kpt1(3),kpt2(3)
+real(8)::gam0,gam1,gam2,gam3,gam4,delta,kappa,V,tau,lattice,lIA,lIB,dd(3),kpt(3),Ek(6),kpt1(3),kpt2(3),qB,Bvec(3),emin,emax,U0
 complex(8),allocatable::KPcoeff(:,:,:),H00(:,:),H10(:,:)
 integer :: nk, nx, ny, nz, direction
-integer :: ik , num_cpu
+integer :: ik , num_cpu, iy, ix, iz, ii
+integer :: fu,rc
 
-open(unit=10,file='input',status='unknown')
- read(10,*) nbnd
- read(10,*) gam1
- read(10,*) gam2
- read(10,*) gam3
- read(10,*) kappa
- read(10,*) delta
- read(10,*) direction
- read(10,*) Nx,Ny,Nz
- read(10,*) dd
- read(10,*) num_cpu
-close(10)
+namelist /input/  nbnd, gam0, gam1, gam2, gam3, gam4, kappa, delta, V, lIA, lIB, lattice, tau, direction,Nx,Ny,Nz,dd, num_cpu, qB, Bvec, emin, emax,U0
+tau=1.0d0
+emin=0.0d0
+emax=0.25d0
+U0=0.0d0
+
+
+open (action='read', file='input', iostat=rc, newunit=fu)
+read (nml=input, iostat=rc, unit=fu)
+close(fu)
 
 call omp_set_num_threads(num_cpu)
 
 allocate(KPcoeff(nbnd,nbnd,10))
 print *, 'nbnd=',nbnd
 if (nbnd==4) then
-    call generate_LK4(KPcoeff, gam1,gam2,gam3,kappa)
+    call generate_LK4(KPcoeff, gam1,gam2,gam3,kappa,qB,Bvec)
 end if
 
 if (nbnd==6) then
-    call generate_LK6(KPcoeff, gam1,gam2,gam3,delta,kappa)
+    call generate_LK6(KPcoeff, gam1,gam2,gam3,delta,kappa,qB,Bvec)
 end if
+
+if (nbnd==8) then
+    call generate_BLG8(KPcoeff, tau,gam0,gam1,gam3,gam4,V,delta,lIA,lIB,lattice,correct_fdp=lattice/20.0,magfield=Bvec)
+end if    
 
 call save_KP_coeff('kpcoeff.dat', nbnd, KPcoeff)
 
@@ -69,7 +49,16 @@ call test_bandstructure(nbnd,KPcoeff,dd)
 allocate(H00(Ny*Nz*nbnd,Ny*Nz*nbnd))
 allocate(H10(Ny*Nz*nbnd,Ny*Nz*nbnd))
 
-call build_wire_ham_blocks(nbnd,KPcoeff, dd, direction, Ny, Nz, H00, H10)
+call build_wire_ham_blocks(nbnd,KPcoeff, dd, direction, Ny, Nz, H00, H10,vector_field=(/-Bvec(2),Bvec(1),0.0d0/))
+
+! add potential
+do iy = 1,Ny
+  do iz = 1,Nz
+    do ii = ((iy-1) * Nz + iz - 1) * nbnd + 1 , ((iy-1) * Nz + iz) * nbnd
+        H00(ii,ii) = H00(ii,ii) + gaussian(r=(iy-Ny/2)*dd(2),b=0.0d0,U0=U0,sigma=Ny*dd(2)/8)
+    enddo
+  enddo
+enddo
 
 ! call save_matrix('Hii.dat', Ny*Nz*nbnd, H00)
 ! call save_matrix('H1i.dat', Ny*Nz*nbnd, H10)
@@ -77,21 +66,32 @@ call build_wire_ham_blocks(nbnd,KPcoeff, dd, direction, Ny, Nz, H00, H10)
 call save_matrix_csr('Hii_csr.dat', Ny*Nz*nbnd, Ny*Nz*nbnd, H00)
 call save_matrix_csr('H1i_csr.dat', Ny*Nz*nbnd, Ny*Nz*nbnd, H10)
 
-call test_transport_bandstructure(H00,H10,nbnd,ny,nz,dd(direction))
+call test_transport_bandstructure(H00,H10,nbnd,ny,nz,dd(direction),emin,emax)
 
 deallocate(H10,H00)
 
 allocate(H00(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd))
 
-call build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,H00)
+call build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,H00,vector_field=(/-Bvec(2),Bvec(1),0.0d0/))
+
+! add potential
+do ix = 1,Nx
+    do iy = 1,Ny
+      write(11,*) ix, iy, gaussian(r=sqrt(((iy-Ny/2)*dd(2))**2 + ((ix-Nx/2)*dd(1))**2),b=0.0d0,U0=U0,sigma=Ny*dd(2)/8)
+      do iz = 1,Nz
+        do ii = ((ix-1)*Ny*Nz + (iy-1)*Nz + iz - 1) * nbnd + 1 , ((ix-1)*Ny*Nz + (iy-1)*Nz + iz) * nbnd
+            H00(ii,ii) = H00(ii,ii) + gaussian(r=sqrt(((iy-Ny/2)*dd(2))**2 + ((ix-Nx/2)*dd(1))**2),b=0.0d0,U0=U0,sigma=Ny*dd(2)/8)
+        enddo
+      enddo
+    enddo
+enddo
 
 call save_matrix_csr('Ham_csr.dat', Nx*Ny*Nz*nbnd, Nx*Ny*Nz*nbnd, H00)
 
-call test_schroedinger(H00,nbnd,nx,ny,nz,0.0d0,0.25d0)
+call test_schroedinger(H00,nbnd,nx,ny,nz,emin,emax)
 
 deallocate(H00)
 
 deallocate(KPcoeff)
-
 
 END PROGRAM main

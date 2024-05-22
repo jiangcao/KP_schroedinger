@@ -1,30 +1,6 @@
 ! Copyright (c) 2023 Jiang Cao, ETH Zurich 
 ! All rights reserved.
 !
-! Redistribution and use in source and binary forms, with or without
-! modification, are permitted provided that the following conditions are met:
-!
-! 1. Redistributions of source code must retain the above copyright notice,
-!    this list of conditions and the following disclaimer.
-! 2. Redistributions in binary form must reproduce the above copyright notice,
-!    this list of conditions and the following disclaimer in the documentation
-!    and/or other materials provided with the distribution.
-! 3. Neither the name of the copyright holder nor the names of its contributors 
-!    may be used to endorse or promote products derived from this software without 
-!    specific prior written permission.
-!
-! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-! AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-! IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-! ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-! LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-! CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-! SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-! INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-! CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-! ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-! POSSIBILITY OF SUCH DAMAGE. 
-!
 module kpHam
 
     implicit none 
@@ -38,6 +14,7 @@ module kpHam
     public :: build_wire_ham_blocks, build_dot_ham
     public :: test_bandstructure, test_transport_bandstructure, test_schroedinger
     public :: eigv_feast
+    public :: generate_BLG8
     
 
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
@@ -69,16 +46,23 @@ CONTAINS
 
     ! build the Hamiltonian blocks for a wire structure
     !   use KPcoeff. table, wire direction can be picked from x-y-z
-    subroutine build_wire_ham_blocks(nbnd,KPcoeff, dd, wire_direction, Ny, Nz, H00, H10)
+    subroutine build_wire_ham_blocks(nbnd,KPcoeff, dd, wire_direction, Ny, Nz, H00, H10, vector_field)
         integer,intent(in)::nbnd ! number of bands
         complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table        
         real(8), intent(in) :: dd(3) ! discretization step size in x-y-z
         integer, intent(in) :: wire_direction ! wire direction 1-3
         integer, intent(in) :: Ny,Nz ! number of points in the cross-section
         complex(8), intent(out), dimension(Ny*Nz*nbnd,Ny*Nz*nbnd) :: H00,H10 ! Ham blocks of the wire
+        real(8), intent(in), optional :: vector_field(3)
         ! ----
-        complex(8)::Hij(nbnd,nbnd)
+        complex(8)::Hij(nbnd,nbnd),phi
         integer:: x(3),y(3),z(3),i(3),j(3), m,n,p,q, row,col
+        real(8):: Avec(3)
+        if(present(vector_field)) then
+          Avec = vector_field
+        else
+          Avec = 0.0d0
+        endif
         select case( wire_direction )
             case default  ! x
                 x = (/1,0,0/)
@@ -103,12 +87,14 @@ CONTAINS
                 col = (p-1)*Nz + q
                 i = (m-1) * y + (n-1) * z
                 j = (p-1) * y + (q-1) * z
+                phi = dot_product(dble(j-i) * dd , Avec)
                 call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
-                H00( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:)
+                H00( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:) * exp(-c1i*e0/hbar/twopi * phi)
                 !
                 j = (p-1) * y + (q-1) * z + x
+                phi = dot_product(dble(j-i) * dd , Avec)
                 call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
-                H10( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:)
+                H10( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:) * exp(c1i*e0/hbar/twopi * phi)
               enddo
             enddo
           enddo
@@ -116,16 +102,23 @@ CONTAINS
     end subroutine build_wire_ham_blocks
 
     
-    ! build the device Hamiltonian 
-    subroutine build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,Ham)
+    ! build the dot Hamiltonian 
+    subroutine build_dot_ham(nbnd,KPcoeff,dd,Nx,Ny,Nz,Ham,vector_field)
         integer,intent(in)::nbnd ! number of bands
         complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table        
         real(8), intent(in) :: dd(3) ! discretization step size in x-y-z        
         integer, intent(in) :: Nx,Ny,Nz ! number of points
-        complex(8), intent(out), dimension(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd) :: Ham ! device Hamiltonian        
+        complex(8), intent(out), dimension(Nx*Ny*Nz*nbnd,Nx*Ny*Nz*nbnd) :: Ham ! dot Hamiltonian        
+        real(8), intent(in), optional :: vector_field(3)
         ! ----
-        complex(8)::Hij(nbnd,nbnd)
+        complex(8)::Hij(nbnd,nbnd), phi
         integer:: x(3),y(3),z(3),i(3),j(3), m,n,l,p,q,o, row,col
+        real(8):: Avec(3)
+        if(present(vector_field)) then
+          Avec = vector_field
+        else
+          Avec = 0.0d0
+        endif
         x = (/1,0,0/)
         y = (/0,1,0/)
         z = (/0,0,1/)
@@ -139,8 +132,9 @@ CONTAINS
                     col = (o-1)*Ny*Nz + (p-1)*Nz + q
                     i = (m-1) * y + (n-1) * z + (l-1) * x
                     j = (p-1) * y + (q-1) * z + (o-1) * x
+                    phi = dot_product(dble(j-i) * dd , Avec)
                     call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij) 
-                    Ham( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:)                    
+                    Ham( (row-1)*nbnd+1:row*nbnd , (col-1)*nbnd+1:col*nbnd ) = Hij(:,:) * exp(c1i*e0/hbar/twopi * phi)                   
                   enddo
                 enddo
               enddo
@@ -150,22 +144,226 @@ CONTAINS
     end subroutine build_dot_ham 
 
 
-    ! generate Luttinger 6-band KP model coefficients
-    !   PRB 98, 155319 (2018) Eq (D1) (D4), correct an error in the paper in the R term
-    subroutine generate_LK6(KPcoeff, gam1,gam2,gam3,delta,kap)        
-        real(8), intent(in) :: gam1,gam2,gam3,kap,delta
+    ! generate BiLayer Graphene 8-band KP model coefficients
+    !   PRL 125 196402 (2020) , Supp Mat
+    subroutine generate_BLG8(KPcoeff, tau,gam0,gam1,gam3,gam4,V,delta,lIA,lIB,lattice,correct_fdp,magfield)
+      real(8),intent(in) :: tau,gam0,gam1,gam3,gam4,V,delta,lIA,lIB,lattice
+      complex(8),intent(out) :: KPcoeff(8,8,num_k) ! KP coeff. table      
+      real(8),intent(in) :: correct_fdp
+      real(8),intent(in),optional :: magfield(3) ! magnetic field vector
+      ! ----
+      complex(8),dimension(2,2) :: sx,sy,sz,s0 ! spin operators S_x,S_y,S_z,S_+,S_-,I
+      real(8) :: lIA1,lIA2,lIB1,lIB2,lexA1,lexA2,lexB1,lexB2,l0,lR
+      complex(8) :: HTB(4,4,num_k) 
+      complex(8) :: HSO(4,4) , HZ(2,2)
+      complex(8) :: s(2,2,4,4) 
+      complex(8) :: DD(num_k), VV(num_k), ff(num_k), G1(num_k),AA(num_k)
+      integer :: i,m,n      
+      real(8) :: Bvec(3) 
+      real(8),parameter::g0 = 2.0d0
+      real(8),parameter::muB = hb2m*(e0)/hbar
+      if (present(magfield)) then          
+          Bvec=magfield
+      else
+          Bvec=0.0d0          
+      endif
+      !
+      lIA1=0.0d0
+      lIA2=lIA
+      lIB1=0.0d0
+      lIB2=lIB
+      !
+      lexA1=0.0d0
+      lexA2=0.0d0
+      lexB1=0.0d0
+      lexB2=0.0d0
+      !
+      l0=0.0d0
+      lR=0.0d0
+      !
+      sx = 0.5d0 * reshape( (/0.0d0,1.0d0,1.0d0,0.0d0/) , (/2,2/) )
+      sy = 0.5d0/c1i * reshape( (/0.0d0,1.0d0,-1.0d0,0.0d0/) , (/2,2/) )
+      sz = 0.5d0 * reshape( (/1.0d0,0.0d0,0.0d0,-1.0d0/) , (/2,2/) )      
+      s0 = reshape( (/1.0d0,0.0d0,0.0d0,1.0d0/) , (/2,2/) )
+      !
+      KPcoeff = czero
+      DD = czero
+      VV = czero
+      ff = czero
+      G1 = czero
+      AA = czero
+      !
+      DD(const) = delta
+      VV(const) = V      
+      G1(const) = gam1
+      !
+      ff(dx) = - sqrt(3.0d0) / 2.0d0 * lattice * tau
+      ff(dy) = + sqrt(3.0d0) / 2.0d0 * lattice * c1i       
+      !
+      ! To avoid Fermion doubling problem, refer to L. Susskind, Phys. Rev. D
+      ! 16, 3031 (1977) and the discussion around Eq (1.7)
+      if (correct_fdp .ne. 0) then
+        AA(dx2) = -abs(ff(dx)) * correct_fdp
+        AA(dy2) = -abs(ff(dx)) * correct_fdp        
+      endif
+      !
+      ! H_TB      
+      do i=1,num_k
+        HTB(:,:,i) = reshape( (/ DD(i)+VV(i)+AA(i)  ,  gam0*ff(i)  ,   gam4*conjg(ff(i))  , G1(i)              ,  &
+                                 gam0*conjg(ff(i))  ,  VV(i)-AA(i) ,   gam3*ff(i)         , gam4*conjg(ff(i))  ,  &
+                                 gam4*ff(i)         ,  gam3*conjg(ff(i))   ,  -VV(i)+AA(i), gam0*ff(i)         ,  &
+                                 G1(i)              ,  gam4*ff(i)  ,  gam0*conjg(ff(i))   , DD(i)-VV(i) -AA(i)   /), (/4,4/) )
+      enddo
+      do i=1,num_k
+        do m=1,4
+          do n=1,4
+            KPcoeff( (m-1)*2+1:m*2 , (n-1)*2+1:n*2 , i ) = KPcoeff( (m-1)*2+1:m*2 , (n-1)*2+1:n*2 , i ) + HTB(m,n,i) * s0
+          enddo
+        enddo      
+      enddo
+      ! + H_SO 
+      s = czero
+      s(:,:,1,1) = sz
+      s(:,:,1,2) = 0.5d0*(sx-c1i*tau*sy)
+      s(:,:,2,1) = 0.5d0*(sx+c1i*tau*sy)
+      s(:,:,2,2) = sz
+      s(:,:,3,3) = sz
+      s(:,:,3,4) = 0.5d0*(sx-c1i*tau*sy)
+      s(:,:,4,3) = 0.5d0*(sx+c1i*tau*sy)
+      s(:,:,4,4) = sz
+      !
+      HSO = reshape( (/  (tau*lIA1 - lexA1)*cone, c1i*(l0+2.0d0*lR)          , czero                , czero               , &
+                        -c1i*(l0+2.0d0*lR)      , (-tau*lIB1-lexB1)*cone     , czero                , czero               , &
+                        czero                   , czero                      , (tau*lIA2-lexA2)*cone,  -c1i*(l0-2.0d0*lR) , &
+                        czero                   , czero                      , c1i*(l0-2.0d0*lR)    , (-tau*lIB2-lexB2)*cone /), (/4,4/) )
+      !              
+      do m=1,4
+        do n=1,4
+          KPcoeff( (m-1)*2+1:m*2 , (n-1)*2+1:n*2 , const ) = KPcoeff( (m-1)*2+1:m*2 , (n-1)*2+1:n*2 , const ) + HSO(m,n) * s(:,:,m,n)
+        enddo
+      enddo
+      ! + H_Zeeman
+      HZ = g0*muB*( Bvec(1)*sx + Bvec(2)*sy + Bvec(3)*sz )  
+      do m=1,4        
+        KPcoeff( (m-1)*2+1:m*2 , (m-1)*2+1:m*2 , const ) = KPcoeff( (m-1)*2+1:m*2 , (m-1)*2+1:m*2 , const ) + HZ(:,:)        
+      enddo
+    end subroutine generate_BLG8
+
+
+
+    ! generate LS 6-band KP model coefficients
+    !   
+    subroutine generate_LS6(KPcoeff, gam1,gam2,gam3,delta,kap_,qB_,Bvec_)        
+        real(8), intent(in) :: gam1,gam2,gam3,delta
+        real(8), intent(in),optional ::kap_,qB_
         complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
+        real(8), intent(in),optional :: Bvec_(3)
         ! ----
-        complex(8),dimension(num_k) :: P,Q,S,R,D
+        real(8)::Bvec(3),kap,qB
         integer::i,m,n  
+        real(8):: Bx,By,Bz
         real(8),parameter :: sq2 = sqrt(2.0d0)
         real(8),parameter :: sq3o2 = sqrt(3.0d0/2.0d0)
+        real(8),parameter :: sq3b2 = sqrt(3.0d0)/2.0d0
+        Bvec= merge(Bvec_,0.0d0,present(Bvec_))
+        kap= merge(kap_,0.0d0,present(kap_))
+        qB= merge(qB_,0.0d0,present(qB_))
+        print *
+        print *,'B=',Bvec
+        Bx=Bvec(1)
+        By=Bvec(2)
+        Bz=Bvec(3)
+        ! construct the coeff. table   
+        KPcoeff=czero
+        
+        
+    end subroutine generate_LS6
+
+
+    ! generate Luttinger 6-band KP model coefficients
+    !   PRB 98, 155319 (2018) Eq (D1) (D4), correct an error in the paper in the R term
+    subroutine generate_LK6(KPcoeff, gam1,gam2,gam3,delta,kap_,qB_,Bvec_)        
+        real(8), intent(in) :: gam1,gam2,gam3,delta
+        real(8), intent(in),optional ::kap_,qB_
+        complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
+        real(8), intent(in),optional :: Bvec_(3)
+        ! ----
+        complex(8),dimension(num_k) :: P,Q,S,R,D
+        complex(8) :: kkx,kky,kkz,qx,qy,qz
+        real(8):: kapp,kappp
+        complex(8),dimension(6,6)::Jx,Jy,Jz
+        complex(8),dimension(6,6)::Kx,Ky,Kz
+        complex(8),dimension(6,6)::Jx3,Jy3,Jz3 
+        real(8)::Bvec(3),kap,qB
+        integer::i,m,n  
+        real(8):: Bx,By,Bz
+        real(8),parameter :: sq2 = sqrt(2.0d0)
+        real(8),parameter :: sq3o2 = sqrt(3.0d0/2.0d0)
+        real(8),parameter :: sq3b2 = sqrt(3.0d0)/2.0d0
+        Bvec= merge(Bvec_,0.0d0,present(Bvec_))
+        kap= merge(kap_,0.0d0,present(kap_))
+        qB= merge(qB_,0.0d0,present(qB_))
+        print *
+        print *,'B=',Bvec
+        Bx=Bvec(1)
+        By=Bvec(2)
+        Bz=Bvec(3)
         ! construct the coeff. table   
         P=czero
         Q=czero
         S=czero
         R=czero
         D=czero
+        !
+        Jx3=czero
+        Jy3=czero
+        Jz3=czero
+        ! 
+        kapp=1.0d0+kap
+        kappp=1.0d0+2.0d0*kap
+        !
+        Kx(:,:) = reshape( &
+               (/ 0.0d0 , -sq3b2*kap,       0.0d0,      0.0d0,    sq3o2/2.0d0*kapp,                  0.0d0, &
+                  0.0d0 ,     0.0d0 ,  -1.0d0*kap,      0.0d0,               0.0d0,   1.0d0/2.0d0/sq2*kapp, &
+                  0.0d0 ,     0.0d0 ,      0.0d0 , -sq3b2*kap, -1.0/2.0d0/sq2*kapp,                  0.0d0, &
+                  0.0d0 ,     0.0d0 ,      0.0d0 ,     0.0d0 ,              0.0d0 ,      -sq3o2/2.0d0*kapp, &
+                  0.0d0 ,     0.0d0 ,      0.0d0 ,     0.0d0 ,              0.0d0 ,           -0.5d0*kappp, &
+                  0.0d0 ,     0.0d0 ,      0.0d0 ,     0.0d0 ,              0.0d0 ,                0.0d0/), &
+                (/6, 6/) )
+        !
+        Ky(:,:) = -c1i * reshape( &
+               (/ 0.0d0, -sq3b2*kap ,      0.0d0 ,      0.0d0,  sq3o2/2.0d0*kapp,               0.0d0, &
+                  0.0d0,      0.0d0 , -1.0d0*kap ,      0.0d0,             0.0d0,    1/2.0d0/sq2*kapp, &
+                  0.0d0,      0.0d0 ,      0.0d0 , -sq3b2*kap,  1/2.0d0/sq2*kapp,               0.0d0, &
+                  0.0d0,      0.0d0 ,      0.0d0 ,     0.0d0 ,            0.0d0 ,    sq3o2/2.0d0*kapp, &
+                  0.0d0,      0.0d0 ,      0.0d0 ,     0.0d0 ,            0.0d0 ,        -0.5d0*kappp, &
+                  0.0d0,      0.0d0 ,      0.0d0 ,     0.0d0 ,            0.0d0 ,             0.0d0/), &
+                (/6, 6/) )
+        !
+        Kz(:,:) = reshape( &
+               (/ -sq3o2**2*kap,             0.0d0,          0.0d0 ,         0.0d0,           0.0d0,            0.0d0, &
+                          0.0d0, -1.0d0/2.0d0*kap ,          0.0d0 ,         0.0d0, -1.0d0/sq2*kapp,            0.0d0, &
+                          0.0d0,            0.0d0 , 1.0d0/2.0d0*kap,         0.0d0,          0.0d0 ,  -1.0d0/sq2*kapp, &
+                          0.0d0,            0.0d0 ,          0.0d0 ,  sq3o2**2*kap,          0.0d0 ,            0.0d0, &
+                          0.0d0,            0.0d0 ,          0.0d0 ,         0.0d0,    -0.5d0*kappp,            0.0d0, &
+                          0.0d0,            0.0d0 ,          0.0d0 ,         0.0d0,          0.0d0 ,      0.5d0*kappp/),&
+                (/6, 6/) )
+        !
+        do n=1,6
+          do m=1,n-1
+                Kx(m,n) = conjg( Kx(n,m) )
+                Ky(m,n) = conjg( Ky(n,m) )
+                Kz(m,n) = conjg( Kz(n,m) )               
+          enddo
+        enddo
+        !
+        Jx(1:4,1:4)=Kx(1:4,1:4)/kap
+        Jy(1:4,1:4)=Ky(1:4,1:4)/kap
+        Jz(1:4,1:4)=Kz(1:4,1:4)/kap
+        !
+        Jx3(1:4,1:4)=matmul(matmul(Jx(1:4,1:4),Jx(1:4,1:4)),Jx(1:4,1:4))
+        Jy3(1:4,1:4)=matmul(matmul(Jy(1:4,1:4),Jy(1:4,1:4)),Jy(1:4,1:4))
+        Jz3(1:4,1:4)=matmul(matmul(Jz(1:4,1:4),Jz(1:4,1:4)),Jz(1:4,1:4))
         !
         P(dx2) = hb2m * gam1
         P(dy2) = hb2m * gam1
@@ -184,6 +382,15 @@ CONTAINS
         !
         D(const) = delta
         !
+        kkx = hb2m*2.0d0*(e0)/hbar*Bx        
+        qx = hb2m*2.0d0*(e0)/hbar*qB*Bx
+        !
+        kky = hb2m*2.0d0*(e0)/hbar*By
+        qy = hb2m*2.0d0*(e0)/hbar*qB*By
+        !
+        kkz = hb2m*2.0d0*(e0)/hbar*Bz
+        qz = hb2m*2.0d0*(e0)/hbar*qB*Bz
+        !
         KPcoeff=czero
         !
         do i = 1,num_k
@@ -201,20 +408,27 @@ CONTAINS
             enddo
           enddo
         enddo                    
+        !
+        KPcoeff(:,:,const)= KPcoeff(:,:,const) &
+                           + Kx*kkx + Jx3*qx  &
+                           + Ky*kky + Jy3*qy  &
+                           + Kz*kkz + Jz3*qz 
     end subroutine generate_LK6
 
 
 
     ! generate Luttinger 4-band KP model coefficients
     !   PRB 98, 155319 (2018) Eq (D1) (D4)
-    subroutine generate_LK4(KPcoeff, gam1,gam2,gam3,kap)        
-        real(8), intent(in) :: gam1,gam2,gam3,kap
+    subroutine generate_LK4(KPcoeff, gam1,gam2,gam3,kap,qB,Bvec)        
+        real(8), intent(in) :: gam1,gam2,gam3
+        real(8), intent(in),optional::kap,qB
+        real(8), intent(in),optional::Bvec(3)
         complex(8), intent(out) :: KPcoeff(4,4,num_k) ! KP coeff. table        
         ! ----
         complex(8)::LK6(6,6,num_k)
         !
         KPcoeff=czero
-        call generate_LK6(LK6,gam1,gam2,gam3,0.0d0,kap)
+        call generate_LK6(LK6,gam1,gam2,gam3,0.0d0,kap,qB,Bvec)
         KPcoeff(:,:,:)=LK6(1:4,1:4,:)
     end subroutine generate_LK4
 
@@ -288,24 +502,7 @@ CONTAINS
     
     
     ! save a complex matrix to a file in row-column-value format
-    subroutine save_matrix(filename, nm, Mat)
-        character(len=*),intent(in)::filename ! file name
-        integer,intent(in)::nm ! number of bands
-        complex(8), intent(in) :: Mat(nm,nm) ! matrix        
-        ! ----
-        integer::i,j        
-        open(unit=11, file=filename, status='unknown')                
-        do i=1,nm
-            do j=1,nm
-                write(11,'(2I10,2E18.6)') i,j,dble(Mat(i,j)),aimag(Mat(i,j))
-            enddo
-            write(11,*)
-        enddo        
-        close(11)
-    end subroutine save_matrix
-    
-    ! save a complex matrix to a file in row-column-value format
-    subroutine save_matrix2(filename, n, m, Mat)
+    subroutine save_matrix(filename, n, m, Mat)
         character(len=*),intent(in)::filename ! file name
         integer,intent(in)::n,m ! size
         complex(8), intent(in) :: Mat(n,m) ! matrix        
@@ -314,12 +511,13 @@ CONTAINS
         open(unit=11, file=filename, status='unknown')                
         do i=1,n
             do j=1,m
+              if ( abs(Mat(i,j)) > 0.0d0 ) then
                 write(11,'(2I10,2E18.6)') i,j,dble(Mat(i,j)),aimag(Mat(i,j))
-            enddo
-            write(11,*)
+              endif
+            enddo            
         enddo        
         close(11)
-    end subroutine save_matrix2
+    end subroutine save_matrix
     
     ! save a complex sparse matrix to a file in CSR format
     subroutine save_matrix_csr(filename, n, m, Mat)
@@ -383,16 +581,21 @@ CONTAINS
 
     
     ! save a wavefunction 
-    subroutine save_wavefunc(filename, n, m, Mat)
+    subroutine save_wavefunc(filename, n, m, Mat, label)
         character(len=*),intent(in)::filename ! file name
         integer,intent(in)::n,m ! size
-        complex(8), intent(in) :: Mat(n,m) ! matrix        
+        complex(8), intent(in) :: Mat(n,m) ! matrix 
+        integer,intent(in),optional::label
         ! ----
         integer::i,j        
         open(unit=11, file=filename, status='unknown')                
         do i=1,n
             do j=1,m
-                write(11,'(2I10,1E18.6)') i,j,(abs(Mat(i,j)))**2
+                if (present(label)) then
+                    write(11,'(3I10,1E18.6)') i,j,label,abs(Mat(i,j))
+                else
+                    write(11,'(2I10,1E18.6)') i,j,abs(Mat(i,j))
+                endif
             enddo
             write(11,*)
         enddo        
@@ -498,7 +701,7 @@ CONTAINS
         real(8)::ddx,ddy,ddz
         ! k_v -> -i d/d_v 
         ! use the following rules
-        !   d/dx = (psi_i+1 - psi_i-1)/2/dx
+        !   d/dx = (psi_i+1 - psi_i-1)/2/dx  
         !   d^2/dx^2 = (psi_i+1 + psi_i-1 - 2psi_i)/dx^2
         !   d^2/dx/dy = (psi_i+1,j+1 + psi_i-1,j-1 - psi_i+1,j-1 - psi_i-1,j+1) / (4 dx dy)        
         ij = i-j        
@@ -623,7 +826,7 @@ CONTAINS
         CALL zheev( 'N','U', NN, A, NN, W, WORK, LWORK, RWORK, INFO )
         !
         deallocate(work,rwork)
-        if (INFO.ne.0)then
+        if (INFO/=0)then
         write(*,*)'SEVERE WARNING: ZHEEV HAS FAILED. INFO=',INFO
         call abort
         endif
@@ -634,19 +837,24 @@ CONTAINS
     ! calculate all eigen-values and eigen-vectors of a Hermitian matrix A 
     !   within a given search interval, a wrapper to the FEAST function in MKL https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-fortran/2023-1/feast-syev-feast-heev.html   
     !   upon return A(:,1:m) will be modified and contains the eigen-vectors
-    FUNCTION eigv_feast(NN, A, emin, emax, m)    
+    FUNCTION eigv_feast(NN, A, emin, emax, m, m_init)    
         include 'mkl.fi'
         INTEGER, INTENT(IN) :: NN
         COMPLEX(8), INTENT(INOUT), DIMENSION(:,:) :: A
         REAL(8), INTENT(IN) :: emin, emax ! lower and upper bounds of the interval to be searched for eigenvalues
         REAL(8) :: eigv_feast(NN)
         integer,intent(out) :: m ! total number of eigenvalues found
+        integer,intent(in),optional :: m_init
         ! -----        
         real(8) :: epsout
         integer :: fpm(128), m0, loop, info
         complex(8),allocatable :: x(:,:)
         real(8), allocatable :: w(:), res(:)
-        m0=max(nn/10,1000)
+        if (present(m_init)) then
+            m0=m_init
+        else
+            m0=max(floor(sqrt(dble(nn))),10)
+        endif
         allocate(x(nn,m0))
         allocate(w(m0))
         allocate(res(m0))
@@ -656,7 +864,7 @@ CONTAINS
         !
         call zfeast_heev('U',nn,A,nn,fpm,epsout,loop,emin,emax,m0,W,x,m,res, info)        
         !
-        if (INFO.ne.0)then
+        if (INFO/=0)then
         write(*,*)'SEVERE WARNING: zfeast_heev HAS FAILED. INFO=',INFO
         call abort
         endif
@@ -687,12 +895,13 @@ CONTAINS
         CALL zheev( 'V','U', NN, A, NN, W, WORK, LWORK, RWORK, INFO )
         !
         deallocate(work,rwork)
-        if (INFO.ne.0)then
+        if (INFO/=0)then
         write(*,*)'SEVERE WARNING: ZHEEV HAS FAILED. INFO=',INFO
         call abort
         endif
         eigv(:)=W(:)
     END FUNCTION eigv
+
 
 !!!!!!!!!!!!!!!!!!!!!!!!   test  functions   !!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -721,9 +930,9 @@ CONTAINS
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
-          write(11,'(7E18.6)') dble(ik)/dble(nk), Ek          
+          write(11,'(20E18.6)') dble(ik)/dble(nk), Ek          
           call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(7E18.6)') dble(ik)/dble(nk), Ek          
+          write(10,'(20E18.6)') dble(ik)/dble(nk), Ek          
         enddo
         !
         kpt1 = (/ 0.0d9 , kmin , 0.0d0 /)
@@ -731,9 +940,9 @@ CONTAINS
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
-          write(11,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
+          write(11,'(20E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
           call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(7E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
+          write(10,'(20E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
         enddo
         !
         kpt1 = (/ 0.0d9 , 0.0d9 , kmin /)
@@ -741,9 +950,9 @@ CONTAINS
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1                    
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
+          write(11,'(20E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
           call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(7E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
+          write(10,'(20E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
         enddo
         !
         kpt1 = (/ kmin , 0.0d9 , kmin /)
@@ -751,9 +960,9 @@ CONTAINS
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1    
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
+          write(11,'(20E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
           call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(7E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
+          write(10,'(20E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
         enddo
         !
         kpt1 = (/ kmin , kmin , 0.0d9 /)
@@ -761,9 +970,9 @@ CONTAINS
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
+          write(11,'(20E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
           call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(7E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
+          write(10,'(20E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
         enddo
         !
         kpt1 = (/ kmin , kmin , kmin /)
@@ -771,9 +980,9 @@ CONTAINS
         do ik = 1,nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(7E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
+          write(11,'(20E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
           call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(7E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
+          write(10,'(20E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
         enddo
         !
         close(10)
@@ -782,23 +991,26 @@ CONTAINS
     end subroutine test_bandstructure
     
     
-    subroutine test_transport_bandstructure(H00,H10,nbnd,ny,nz,dx)
+    subroutine test_transport_bandstructure(H00,H10,nbnd,ny,nz,dx,emin,emax)
         implicit none
         complex(8),intent(in),dimension(ny*nz*nbnd,ny*nz*nbnd) :: H00, H10
         integer,intent(in) :: ny,nz,nbnd
-        real(8),intent(in) :: dx
+        real(8),intent(in) :: dx,emin,emax
         ! ----
         complex(8)::Ham(ny*nz*nbnd,ny*nz*nbnd),V(nbnd,nz,ny)
         real(8)::kx,Ek(ny*nz*nbnd),kpt1,kpt2,kpt
-        integer::nk,ik,ib,m
+        integer::nk,ik,ib,m,im,i,j,fu
+        character(len=100)::filename
         !
-        nk = 20
+        nk = 150
         print *
         print *, ' Computing wire bandstructure ...'
         open(unit=10,file='Boundary_ek.dat',status='unknown')        
         !
-        kpt1 = -2.0d9
-        kpt2 = +2.0d9 
+        !kpt1 = -2.0d9
+        !kpt2 = +2.0d9 
+        kpt1 = -3.1415d0/dx
+        kpt2 = +3.1415d0/dx
         do ik = 1,nk
           print *
           print *, ik, '/', nk
@@ -806,38 +1018,45 @@ CONTAINS
           Ham(:,:) = H00(:,:) + exp( - c1i * kpt * dx )*H10(:,:) &
                               + exp( + c1i * kpt * dx )*transpose(conjg(H10(:,:)))
           !
-          if ( ny*nz*nbnd < 1000 ) then
+          if ( ny*nz*nbnd < 3000 ) then
             Ek(:) = eig(ny*nz*nbnd,Ham)
             m = ny*nz*nbnd
           else
-            Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=0.5d0, m=m)  
+            Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=emin, emax=emax, m=m)  
           endif
           !
           do ib=1,m
-            write(10,'(2E18.6)') dble(ik)/dble(nk), Ek(ib)
+            write(10,'(2E25.14)') dble(ik)/dble(nk), Ek(ib)
           enddo
         enddo            
         close(10)
         kpt=0.0d0
         Ham(:,:) = H00(:,:) + H10(:,:) + transpose(conjg(H10(:,:)))        
-        if ( ny*nz*nbnd < 1000 ) then
+        if ( ny*nz*nbnd < 3000 ) then
           Ek(:) = eigv(ny*nz*nbnd,Ham)
+          m = ny*nz*nbnd
         else
-          Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=0.0d0, emax=0.5d0, m=m)
+          Ek(:) = eigv_feast(ny*nz*nbnd,Ham, emin=emin, emax=emax, m=m)
         endif
-        ! first eigen vector
-        V = reshape( Ham(:,1) ,(/nbnd, nz, ny/) )
-        call save_wavefunc( 'vec1_1.dat', nz,ny, V(1,:,:) )
-        call save_wavefunc( 'vec1_2.dat', nz,ny, V(2,:,:) )
-        call save_wavefunc( 'vec1_3.dat', nz,ny, V(3,:,:) )
-        call save_wavefunc( 'vec1_4.dat', nz,ny, V(4,:,:) )
-        ! second eigen vector
-        V = reshape( Ham(:,2) ,(/nbnd, nz, ny/) )
-        call save_wavefunc( 'vec2_1.dat', nz,ny, V(1,:,:) )
-        call save_wavefunc( 'vec2_2.dat', nz,ny, V(2,:,:) )
-        call save_wavefunc( 'vec2_3.dat', nz,ny, V(3,:,:) )
-        call save_wavefunc( 'vec2_4.dat', nz,ny, V(4,:,:) )
-        !
+        ! save eigen vectors
+        do im=1,m
+            if ((Ek(im)>emin) .and. (Ek(im)<emax)) then
+                V = reshape( Ham(:,im) ,(/nbnd, nz, ny/) )
+                filename = 'vec_'//string(im)//'.dat'
+                open(newunit=fu, file=filename, status='unknown')                
+                write(fu,*) '# energy', Ek(im)
+                write(fu,*) '# Y - Z - Component - Abs(psi)'
+                do ib=1,nbnd
+                    write(fu,*) '# component', ib
+                    do i=1,ny
+                        do j=1,nz
+                            write(fu,'(3I10,1E18.6)') i,j,ib,abs(V(ib,j,i))
+                        enddo
+                    enddo
+                enddo        
+                close(fu)
+            endif
+        enddo        
     end subroutine test_transport_bandstructure
     
     
@@ -849,43 +1068,47 @@ CONTAINS
         ! ----
         complex(8)::V(nbnd,nz,ny,nx)
         real(8)::Ek(nx*ny*nz*nbnd)
-        integer::m
+        integer::m,ib,im
         !        
         print *
         print *, ' Computing Schoedinger ...'
         !        
-        Ek(:) = eigv_feast(nx*ny*nz*nbnd,H, emin=0.0d0, emax=1.0d0, m=m)
+        Ek(:) = eigv_feast(nx*ny*nz*nbnd,H, emin=emin, emax=emax, m=m)
         open(unit=10,file='dot_en.dat',status='unknown')  
-        write(10,'(8E18.6)') Ek(1:m)      
+        write(10,'(1E25.18)') Ek(1:m)      
         close(10)
-        ! first eigen vector
-        V = reshape( H(:,1) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot1_1_yz.dat', nz,ny, V(1,:,:,nx/2) )
-        call save_wavefunc( 'dot1_2_yz.dat', nz,ny, V(2,:,:,nx/2) )
-        call save_wavefunc( 'dot1_3_yz.dat', nz,ny, V(3,:,:,nx/2) )
-        call save_wavefunc( 'dot1_4_yz.dat', nz,ny, V(4,:,:,nx/2) )
-        ! first eigen vector
-        V = reshape( H(:,1) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot1_1_xy.dat', nx,ny, V(1,nz/2,:,:) )
-        call save_wavefunc( 'dot1_2_xy.dat', nx,ny, V(2,nz/2,:,:) )
-        call save_wavefunc( 'dot1_3_xy.dat', nx,ny, V(3,nz/2,:,:) )
-        call save_wavefunc( 'dot1_4_xy.dat', nx,ny, V(4,nz/2,:,:) )
-        !
-        ! second eigen vector
-        V = reshape( H(:,2) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot2_1_yz.dat', nz,ny, V(1,:,:,nx/2) )
-        call save_wavefunc( 'dot2_2_yz.dat', nz,ny, V(2,:,:,nx/2) )
-        call save_wavefunc( 'dot2_3_yz.dat', nz,ny, V(3,:,:,nx/2) )
-        call save_wavefunc( 'dot2_4_yz.dat', nz,ny, V(4,:,:,nx/2) )
-        ! second eigen vector
-        V = reshape( H(:,2) ,(/nbnd, nz, ny, nx/) )
-        call save_wavefunc( 'dot2_1_xy.dat', nx,ny, V(1,nz/2,:,:) )
-        call save_wavefunc( 'dot2_2_xy.dat', nx,ny, V(2,nz/2,:,:) )
-        call save_wavefunc( 'dot2_3_xy.dat', nx,ny, V(3,nz/2,:,:) )
-        call save_wavefunc( 'dot2_4_xy.dat', nx,ny, V(4,nz/2,:,:) )        
-        !
+        do im=1,m
+          ! map eigen vector to real-space
+          V = reshape( H(:,im) ,(/nbnd, nz, ny, nx/) )
+          do ib=1,nbnd        
+              !call save_wavefunc( 'dot_'//string(im)//'_'//string(ib)//'_yz.dat', nz,ny, V(ib,:,:,max(nx/2,1)) )
+          enddo        
+          !        
+          do ib=1,nbnd
+              call save_wavefunc( 'dot_'//string(im)//'_'//string(ib)//'_xy.dat', nx,ny, V(ib,max(nz/2,1),:,:) )
+          enddo        
+          !
+        enddo
         print *, Ek(1:m)
     end subroutine test_schroedinger
     
+!!!!!!!!!!!!!!!!!!!!!!!!  utility functions  !!!!!!!!!!!!!!!!!!!!!!!!!!    
+    
+    FUNCTION STRING(inn)
+      IMPLICIT NONE
+      INTEGER, PARAMETER :: POS= 4
+      INTEGER, INTENT(IN) :: inn
+      CHARACTER(LEN=POS) :: STRING
+      !............................................................
+      INTEGER :: cifra, np, mm, num  
+      IF (inn > (10**POS)-1) stop "ERRORE: (inn > (10**3)-1)  in STRING"
+      num= inn
+      DO np= 1, POS
+         mm= pos-np
+         cifra= num/(10**mm)            
+         STRING(np:np)= ACHAR(48+cifra)
+         num= num - cifra*(10**mm)
+      END DO
+    END FUNCTION STRING
     
 end module kpHam
