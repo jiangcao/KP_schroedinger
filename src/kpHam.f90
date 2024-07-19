@@ -253,8 +253,8 @@ CONTAINS
 
     ! generate LS 6-band KP model coefficients
     !   
-    subroutine generate_LS6(KPcoeff, gam1,gam2,gam3,delta,kap_,qB_,Bvec_)        
-        real(8), intent(in) :: gam1,gam2,gam3,delta
+    subroutine generate_LS6(KPcoeff, A,B,C,delta,kap_,qB_,Bvec_)        
+        real(8), intent(in) :: A,B,C,delta
         real(8), intent(in),optional ::kap_,qB_
         complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
         real(8), intent(in),optional :: Bvec_(3)
@@ -275,8 +275,30 @@ CONTAINS
         Bz=Bvec(3)
         ! construct the coeff. table   
         KPcoeff=czero
-        
-        
+        !
+        KPcoeff(1,1,dx2)=A
+        KPcoeff(1,1,dy2)=B
+        KPcoeff(1,1,dz2)=B
+        !
+        KPcoeff(2,2,dx2)=B
+        KPcoeff(2,2,dy2)=A
+        KPcoeff(2,2,dz2)=B
+        !
+        KPcoeff(3,3,dx2)=B
+        KPcoeff(3,3,dy2)=B
+        KPcoeff(3,3,dz2)=A
+        !
+        KPcoeff(1,2,dxdy)=C
+        !
+        KPcoeff(1,3,dxdz)=C
+        !
+        KPcoeff(2,3,dydz)=C
+        do n=1,3
+          do m=1,n-1
+              KPcoeff(m,n,i) = conjg( KPcoeff(n,m,i) )               
+          enddo
+        enddo
+        KPcoeff(4:6,4:6,:) = KPcoeff(1:3,1:3,:) ! copy up/down spin
     end subroutine generate_LS6
 
 
