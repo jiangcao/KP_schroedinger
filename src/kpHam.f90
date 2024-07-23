@@ -15,6 +15,8 @@ module kpHam
     public :: test_bandstructure, test_transport_bandstructure, test_schroedinger
     public :: eigv_feast
     public :: generate_BLG8
+    public :: generate_LS6
+    public :: rotate_basis, rotate_k_vector
     
 
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
@@ -41,6 +43,12 @@ module kpHam
     integer, parameter :: dx2   = 8
     integer, parameter :: dy2   = 9
     integer, parameter :: dz2   = 10
+    ! lookup table for the index of linear k-terms
+    integer, parameter,dimension(3) :: lookup_linear_k = [dx,dy,dz]
+    ! lookup table for the index of quadratic k-terms
+    integer, parameter,dimension(3,3) :: lookup_quadratic_k  =  [dx2, dxdy,dxdz,&
+                                                                dxdy, dy2,dydz,&
+                                                                dxdz,dydz, dx2]
 
 CONTAINS
 
@@ -249,14 +257,79 @@ CONTAINS
       enddo
     end subroutine generate_BLG8
 
+    ! rotate the basis functions of the Hamiltonian
+    !    given $\psi'_j = U_{ji} \psi_i$ 
+    !    D' = U D U^T
+    subroutine rotate_basis(nb,in_KPcoeff,out_KPcoeff,U)
+      integer,intent(in)::nb ! number of bands
+      complex(8),intent(in)::in_KPcoeff(nb,nb,num_k)
+      complex(8),intent(out)::out_KPcoeff(nb,nb,num_k)
+      real(8),intent(in)::U(nb,nb) ! rotation matrix (unitary)
+      ! ----
+      integer::i,j,m,n,mp,np,k
+      !
+      out_KPcoeff = czero
+      do mp=1,nb
+        do np=1,nb
+          do m=1,nb
+            do n=1,nb
+              do i=1,3
+                do j=1,3
+                  k = lookup_quadratic_k(i,j)
+                  out_KPcoeff(mp,np,k) = out_KPcoeff(mp,np,k) + U(mp,m)*U(np,n)*in_KPcoeff(m,n,k)
+                enddo
+              enddo              
+            enddo
+          enddo    
+        enddo
+      enddo
+    end subroutine rotate_basis
+    
+    ! replace the original wave vector (unprimed one) by the one in the rotated frame (prime one)
+    !    given $k'_j = U_{ji} k_i$ 
+    subroutine rotate_k_vector(nb,in_KPcoeff,out_KPcoeff,U)
+      integer,intent(in)::nb ! number of bands
+      complex(8),intent(in)::in_KPcoeff(nb,nb,num_k)
+      complex(8),intent(out)::out_KPcoeff(nb,nb,num_k)
+      real(8),intent(in)::U(3,3) ! rotation matrix (unitary)
+      ! ----
+      integer::i,j,ip,jp,mp,np,k,kp
+      !
+      out_KPcoeff = czero
+      out_KPcoeff(:,:,const)=in_KPcoeff(:,:,const)
+      do ip=1,3        
+        do i=1,3
+          ! linear k terms
+          kp=lookup_linear_k(ip)
+          k =lookup_linear_k(i)
+          do mp=1,nb
+            do np=1,nb
+              out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)
+            enddo
+          enddo
+          ! quadratic k terms  
+          do jp=1,3                            
+            do j=1,3             
+              kp=lookup_quadratic_k(ip,jp)
+              k =lookup_quadratic_k(i,j)
+              do mp=1,nb
+                do np=1,nb
+                  out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)*U(jp,j)
+                enddo
+              enddo
+            enddo
+          enddo
+        enddo
+      enddo
+    end subroutine rotate_k_vector
 
 
     ! generate LS 6-band KP model coefficients
     !   
     subroutine generate_LS6(KPcoeff, A,B,C,delta,kap_,qB_,Bvec_)        
-        real(8), intent(in) :: A,B,C,delta
-        real(8), intent(in),optional ::kap_,qB_
+        real(8), intent(in) :: A,B,C,delta        
         complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
+        real(8), intent(in),optional ::kap_,qB_
         real(8), intent(in),optional :: Bvec_(3)
         ! ----
         real(8)::Bvec(3),kap,qB
@@ -265,6 +338,10 @@ CONTAINS
         real(8),parameter :: sq2 = sqrt(2.0d0)
         real(8),parameter :: sq3o2 = sqrt(3.0d0/2.0d0)
         real(8),parameter :: sq3b2 = sqrt(3.0d0)/2.0d0
+        real(8) :: Ap,Bp,Cp
+        Ap = hb2m * A
+        Bp = hb2m * B
+        Cp = hb2m * C
         Bvec= merge(Bvec_,0.0d0,present(Bvec_))
         kap= merge(kap_,0.0d0,present(kap_))
         qB= merge(qB_,0.0d0,present(qB_))
@@ -276,26 +353,28 @@ CONTAINS
         ! construct the coeff. table   
         KPcoeff=czero
         !
-        KPcoeff(1,1,dx2)=A
-        KPcoeff(1,1,dy2)=B
-        KPcoeff(1,1,dz2)=B
+        KPcoeff(1,1,dx2)=Ap
+        KPcoeff(1,1,dy2)=Bp
+        KPcoeff(1,1,dz2)=Bp
         !
-        KPcoeff(2,2,dx2)=B
-        KPcoeff(2,2,dy2)=A
-        KPcoeff(2,2,dz2)=B
+        KPcoeff(2,2,dx2)=Bp
+        KPcoeff(2,2,dy2)=Ap
+        KPcoeff(2,2,dz2)=Bp
         !
-        KPcoeff(3,3,dx2)=B
-        KPcoeff(3,3,dy2)=B
-        KPcoeff(3,3,dz2)=A
+        KPcoeff(3,3,dx2)=Bp
+        KPcoeff(3,3,dy2)=Bp
+        KPcoeff(3,3,dz2)=Ap
         !
-        KPcoeff(1,2,dxdy)=C
+        KPcoeff(1,2,dxdy)=Cp
         !
-        KPcoeff(1,3,dxdz)=C
+        KPcoeff(1,3,dxdz)=Cp
         !
-        KPcoeff(2,3,dydz)=C
+        KPcoeff(2,3,dydz)=Cp
         do n=1,3
           do m=1,n-1
+            do i=1,num_k
               KPcoeff(m,n,i) = conjg( KPcoeff(n,m,i) )               
+            enddo
           enddo
         enddo
         KPcoeff(4:6,4:6,:) = KPcoeff(1:3,1:3,:) ! copy up/down spin
@@ -856,6 +935,7 @@ CONTAINS
     END FUNCTION eig
     
     
+    
     ! calculate all eigen-values and eigen-vectors of a Hermitian matrix A 
     !   within a given search interval, a wrapper to the FEAST function in MKL https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-fortran/2023-1/feast-syev-feast-heev.html   
     !   upon return A(:,1:m) will be modified and contains the eigen-vectors
@@ -875,7 +955,7 @@ CONTAINS
         if (present(m_init)) then
             m0=m_init
         else
-            m0=max(floor(sqrt(dble(nn))),10)
+            m0=nn/2
         endif
         allocate(x(nn,m0))
         allocate(w(m0))
@@ -1064,7 +1144,7 @@ CONTAINS
         do im=1,m
             if ((Ek(im)>emin) .and. (Ek(im)<emax)) then
                 V = reshape( Ham(:,im) ,(/nbnd, nz, ny/) )
-                filename = 'vec_'//string(im)//'.dat'
+                filename = 'psi_'//string(im)//'.dat'
                 open(newunit=fu, file=filename, status='unknown')                
                 write(fu,*) '# energy', Ek(im)
                 write(fu,*) '# Y - Z - Component - Abs(psi)'
@@ -1082,24 +1162,25 @@ CONTAINS
     end subroutine test_transport_bandstructure
     
     
-    subroutine test_schroedinger(H,nbnd,nx,ny,nz,emin,emax)
+    subroutine test_schroedinger(H,nbnd,nx,ny,nz,emin,emax,num_modes)
         implicit none
         complex(8),intent(inout),dimension(nx*ny*nz*nbnd,nx*ny*nz*nbnd) :: H
-        integer,intent(in) :: nx,ny,nz,nbnd        
+        integer,intent(in) :: nx,ny,nz,nbnd,num_modes        
         real(8),intent(in) :: emin, emax
         ! ----
         complex(8)::V(nbnd,nz,ny,nx)
         real(8)::Ek(nx*ny*nz*nbnd)
-        integer::m,ib,im
+        integer::m,ib,im,m0
         !        
+        m0=nbnd*nx*ny*nz/5
         print *
         print *, ' Computing Schoedinger ...'
         !        
-        Ek(:) = eigv_feast(nx*ny*nz*nbnd,H, emin=emin, emax=emax, m=m)
+        Ek(:) = eigv_feast(nx*ny*nz*nbnd,H, emin=emin, emax=emax, m=m, m_init=m0)
         open(unit=10,file='dot_en.dat',status='unknown')  
         write(10,'(1E25.18)') Ek(1:m)      
         close(10)
-        do im=1,m
+        do im=1,min(m,num_modes)
           ! map eigen vector to real-space
           V = reshape( H(:,im) ,(/nbnd, nz, ny, nx/) )
           do ib=1,nbnd        
