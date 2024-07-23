@@ -15,7 +15,7 @@ module kpHam
     public :: test_bandstructure, test_transport_bandstructure, test_schroedinger
     public :: eigv_feast
     public :: generate_BLG8
-    public :: generate_LS6
+    public :: generate_LS3
     public :: rotate_basis, rotate_k_vector
     
 
@@ -44,11 +44,11 @@ module kpHam
     integer, parameter :: dy2   = 9
     integer, parameter :: dz2   = 10
     ! lookup table for the index of linear k-terms
-    integer, parameter,dimension(3) :: lookup_linear_k = [dx,dy,dz]
+    integer, parameter,dimension(3) :: lookup_linear_k  =  [dx, dy, dz]
     ! lookup table for the index of quadratic k-terms
-    integer, parameter,dimension(3,3) :: lookup_quadratic_k  =  [dx2, dxdy,dxdz,&
-                                                                dxdy, dy2,dydz,&
-                                                                dxdz,dydz, dx2]
+    integer, parameter,dimension(3,3) :: lookup_quadratic_k  = reshape( [dx2,  dxdy, dxdz,&
+                                                                         dxdy,  dy2, dydz,&
+                                                                         dxdz, dydz,  dz2] , shape=[3,3] )
 
 CONTAINS
 
@@ -268,20 +268,18 @@ CONTAINS
       ! ----
       integer::i,j,m,n,mp,np,k
       !
-      out_KPcoeff = czero
-      do mp=1,nb
-        do np=1,nb
-          do m=1,nb
-            do n=1,nb
-              do i=1,3
-                do j=1,3
-                  k = lookup_quadratic_k(i,j)
-                  out_KPcoeff(mp,np,k) = out_KPcoeff(mp,np,k) + U(mp,m)*U(np,n)*in_KPcoeff(m,n,k)
-                enddo
-              enddo              
-            enddo
-          enddo    
-        enddo
+      out_KPcoeff = czero      
+      ! rotation for quadratic k terms  
+      do k=5,10
+        do mp=1,3
+          do np=1,3
+            do m=1,3
+              do n=1,3                
+                out_KPcoeff(mp,np,k) = out_KPcoeff(mp,np,k) + U(mp,m)*U(np,n)*in_KPcoeff(m,n,k)                              
+              enddo
+            enddo              
+          enddo
+        enddo            
       enddo
     end subroutine rotate_basis
     
@@ -296,10 +294,10 @@ CONTAINS
       integer::i,j,ip,jp,mp,np,k,kp
       !
       out_KPcoeff = czero
-      out_KPcoeff(:,:,const)=in_KPcoeff(:,:,const)
+      !out_KPcoeff(:,:,const)=in_KPcoeff(:,:,const)
       do ip=1,3        
         do i=1,3
-          ! linear k terms
+          ! rotation for linear k terms
           kp=lookup_linear_k(ip)
           k =lookup_linear_k(i)
           do mp=1,nb
@@ -307,14 +305,18 @@ CONTAINS
               out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)
             enddo
           enddo
-          ! quadratic k terms  
+          ! rotation for quadratic k terms  
           do jp=1,3                            
             do j=1,3             
               kp=lookup_quadratic_k(ip,jp)
               k =lookup_quadratic_k(i,j)
               do mp=1,nb
                 do np=1,nb
-                  out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)*U(jp,j)
+                  if (i /= j) then 
+                    out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)/2.0d0*U(ip,i)*U(jp,j)
+                  else 
+                    out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)*U(jp,j)
+                  endif
                 enddo
               enddo
             enddo
@@ -324,24 +326,21 @@ CONTAINS
     end subroutine rotate_k_vector
 
 
-    ! generate LS 6-band KP model coefficients
+    ! generate LS 3-band KP model coefficients
     !   
-    subroutine generate_LS6(KPcoeff, A,B,C,delta,kap_,qB_,Bvec_)        
-        real(8), intent(in) :: A,B,C,delta        
-        complex(8), intent(out) :: KPcoeff(6,6,num_k) ! KP coeff. table        
+    subroutine generate_LS3(KPcoeff,gam1,gam2,gam3,delta,kap_,qB_,Bvec_)        
+        real(8), intent(in) :: gam1,gam2,gam3,delta        
+        complex(8), intent(out) :: KPcoeff(3,3,num_k) ! KP coeff. table        
         real(8), intent(in),optional ::kap_,qB_
         real(8), intent(in),optional :: Bvec_(3)
         ! ----
         real(8)::Bvec(3),kap,qB
         integer::i,m,n  
         real(8):: Bx,By,Bz
-        real(8),parameter :: sq2 = sqrt(2.0d0)
-        real(8),parameter :: sq3o2 = sqrt(3.0d0/2.0d0)
-        real(8),parameter :: sq3b2 = sqrt(3.0d0)/2.0d0
-        real(8) :: Ap,Bp,Cp
-        Ap = hb2m * A
-        Bp = hb2m * B
-        Cp = hb2m * C
+        real(8) :: A,B,C
+        A = hb2m * (gam1 + 4.0* gam2)
+        B = hb2m * (gam1 - 2.0* gam2)
+        C = hb2m * 6.0 * gam3
         Bvec= merge(Bvec_,0.0d0,present(Bvec_))
         kap= merge(kap_,0.0d0,present(kap_))
         qB= merge(qB_,0.0d0,present(qB_))
@@ -353,23 +352,23 @@ CONTAINS
         ! construct the coeff. table   
         KPcoeff=czero
         !
-        KPcoeff(1,1,dx2)=Ap
-        KPcoeff(1,1,dy2)=Bp
-        KPcoeff(1,1,dz2)=Bp
+        KPcoeff(1,1,dx2)=A
+        KPcoeff(1,1,dy2)=B
+        KPcoeff(1,1,dz2)=B
         !
-        KPcoeff(2,2,dx2)=Bp
-        KPcoeff(2,2,dy2)=Ap
-        KPcoeff(2,2,dz2)=Bp
+        KPcoeff(2,2,dx2)=B
+        KPcoeff(2,2,dy2)=A
+        KPcoeff(2,2,dz2)=B
         !
-        KPcoeff(3,3,dx2)=Bp
-        KPcoeff(3,3,dy2)=Bp
-        KPcoeff(3,3,dz2)=Ap
+        KPcoeff(3,3,dx2)=B
+        KPcoeff(3,3,dy2)=B
+        KPcoeff(3,3,dz2)=A
         !
-        KPcoeff(1,2,dxdy)=Cp
+        KPcoeff(2,1,dxdy)=C
         !
-        KPcoeff(1,3,dxdz)=Cp
+        KPcoeff(3,1,dxdz)=C
         !
-        KPcoeff(2,3,dydz)=Cp
+        KPcoeff(3,2,dydz)=C
         do n=1,3
           do m=1,n-1
             do i=1,num_k
@@ -377,8 +376,7 @@ CONTAINS
             enddo
           enddo
         enddo
-        KPcoeff(4:6,4:6,:) = KPcoeff(1:3,1:3,:) ! copy up/down spin
-    end subroutine generate_LS6
+    end subroutine generate_LS3
 
 
     ! generate Luttinger 6-band KP model coefficients
@@ -1014,11 +1012,20 @@ CONTAINS
         complex(8),intent(in)::KPcoeff(nbnd,nbnd,num_k)
         ! ----
         real(8)::kpt(3),kpt1(3),kpt2(3),kmin,kmax
+        real(8)::k_path(6,7)
         real(8),allocatable::Ek(:)
-        integer :: nk,ik            
+        integer :: nk,ik,ipath            
         nk = 1000
-        kmin=-2.0d9
-        kmax=+2.0d9
+        kmin= 2.0d9
+        kmax= 2.0d9
+        k_path=reshape( &
+               [ -1.0, 0.0, 0.0, 1.0, 0.0, 0.0, &
+                  0.0,-1.0, 0.0, 0.0, 1.0, 0.0, &
+                  0.0, 0.0,-1.0, 0.0, 0.0, 1.0, &
+                 -1.0,-1.0, 0.0, 1.0, 1.0, 0.0, &
+                 -1.0, 0.0,-1.0, 1.0, 0.0, 1.0, &
+                  0.0,-1.0,-1.0, 0.0, 1.0, 1.0, &
+                 -1.0,-1.0,-1.0, 1.0, 1.0, 1.0] , shape=[6,7] )
         allocate(Ek(nbnd))
         !
         print *
@@ -1027,64 +1034,21 @@ CONTAINS
         open(unit=10,file='ek0.dat',status='unknown')
         open(unit=11,file='ek.dat',status='unknown')
         !
-        kpt1 = (/ kmin , 0.0d0 , 0.0d0 /)
-        kpt2 = (/ kmax , 0.0d0 , 0.0d0 /)
-        do ik = 1,nk
-          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
-          call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
-          write(11,'(20E18.6)') dble(ik)/dble(nk), Ek          
-          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(20E18.6)') dble(ik)/dble(nk), Ek          
-        enddo
-        !
-        kpt1 = (/ 0.0d9 , kmin , 0.0d0 /)
-        kpt2 = (/ 0.0d9 , kmax , 0.0d0 /)
-        do ik = 1,nk
-          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
-          call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
-          write(11,'(20E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
-          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(20E18.6)') dble(ik)/dble(nk)+1.0d0, Ek          
-        enddo
-        !
-        kpt1 = (/ 0.0d9 , 0.0d9 , kmin /)
-        kpt2 = (/ 0.0d9 , 0.0d9 , kmax /)
-        do ik = 1,nk
-          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1                    
-          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(20E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
-          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(20E18.6)') dble(ik)/dble(nk)+2.0d0, Ek          
-        enddo
-        !
-        kpt1 = (/ kmin , 0.0d9 , kmin /)
-        kpt2 = (/ kmax , 0.0d9 , kmax /)
-        do ik = 1,nk
-          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1    
-          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(20E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
-          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(20E18.6)') dble(ik)/dble(nk)+3.0d0, Ek          
-        enddo
-        !
-        kpt1 = (/ kmin , kmin , 0.0d9 /)
-        kpt2 = (/ kmax , kmax , 0.0d9 /)
-        do ik = 1,nk
-          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
-          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(20E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
-          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(20E18.6)') dble(ik)/dble(nk)+4.0d0, Ek          
-        enddo
-        !
-        kpt1 = (/ kmin , kmin , kmin /)
-        kpt2 = (/ kmax , kmax , kmax /)
-        do ik = 1,nk
-          kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
-          call calc_bands_at(nbnd ,KPcoeff,dd,kpt,Ek)          
-          write(11,'(20E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
-          call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
-          write(10,'(20E18.6)') dble(ik)/dble(nk)+5.0d0, Ek          
+        do ipath=1,7        
+          !
+          kpt1(:) = k_path(1:3,ipath) / sqrt( sum(k_path(1:3,ipath)**2) ) * kmin
+          
+          print *, kpt1
+          kpt2(:) = k_path(4:6,ipath) / sqrt( sum(k_path(4:6,ipath)**2) ) * kmax
+          
+          print *, kpt2
+          do ik = 1,nk
+            kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
+            call calc_bands_at(nbnd,KPcoeff,dd,kpt,Ek)          
+            write(11,'(20E18.6)') dble(ik)/dble(nk)+ipath-1, Ek          
+            call calc_kpbands_at(nbnd, KPcoeff,kpt,Ek)          
+            write(10,'(20E18.6)') dble(ik)/dble(nk)+ipath-1, Ek          
+          enddo
         enddo
         !
         close(10)

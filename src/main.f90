@@ -36,15 +36,22 @@ PROGRAM main
     allocate(KPcoeff(nbnd,nbnd,10))
     print *, 'nbnd=',nbnd
     
+    !call normalize_rotation_matrix(rot_mat)
+    
     select case( trim(kp_type) )
     
-        case( 'LS6' )
-            call generate_LS6(KPcoeff, A=gam1,B=gam2,C=gam3,delta=delta,kap_=kappa,qB_=qB,Bvec_=Bvec)  
-            
+        case( 'LS' )
+            print *, rot_mat
+            call generate_LS3(KPcoeff, gam1=gam1,gam2=gam2,gam3=gam3,delta=delta,kap_=kappa,qB_=qB,Bvec_=Bvec)  
+            call save_KP_coeff('kpcoeff_unrotated.dat', nbnd, KPcoeff)
+            !call save_Ham_blocks('Ham_blocks_unrotated.dat', nbnd, KPcoeff,dd)
             allocate(rot_KPcoeff(nbnd,nbnd,10))
-            call rotate_basis(nb=3,in_KPcoeff=KPcoeff(1:3,1:3,:),out_KPcoeff=rot_KPcoeff(1:3,1:3,:),U=rot_mat)
-            call rotate_basis(nb=3,in_KPcoeff=KPcoeff(4:6,4:6,:),out_KPcoeff=rot_KPcoeff(4:6,4:6,:),U=rot_mat)            
+            call rotate_basis(nb=3,in_KPcoeff=KPcoeff,out_KPcoeff=rot_KPcoeff,U=rot_mat)
+            call save_KP_coeff('kpcoeff_rot_stage1.dat', nbnd, rot_KPcoeff)
+            !call save_Ham_blocks('Ham_blocks_stage1.dat', nbnd, rot_KPcoeff,dd)
             call rotate_k_vector(nb=nbnd,in_KPcoeff=rot_KPcoeff,out_KPcoeff=KPcoeff,U=rot_mat)
+            call save_KP_coeff('kpcoeff_rot_stage2.dat', nbnd, KPcoeff)
+            !call save_Ham_blocks('Ham_blocks_stage2.dat', nbnd, KPcoeff,dd)
             
         case( 'LK4' )
             call generate_LK4(KPcoeff, gam1,gam2,gam3,kappa,qB,Bvec)
