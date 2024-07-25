@@ -44,5 +44,18 @@ contains
             end if
         end if
     end subroutine invert
+    
+    subroutine normalize_real_matrix(A,nn)
+      real(8), dimension(nn, nn), intent(inout) :: A
+      real(8)::tmp
+      integer,intent(in):: nn
+      integer::i
+      do i = 1,nn
+         tmp = sqrt(sum( abs(A(:,i))**2 ))
+         A(:,i) = A(:,i) / tmp
+      enddo
+    end subroutine normalize_real_matrix
+      
+   
 
 end module math

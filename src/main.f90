@@ -30,28 +30,28 @@ PROGRAM main
     open (action='read', file='input', iostat=rc, newunit=fu)
     read (nml=input, iostat=rc, unit=fu)
     close(fu)
+    
+    call normalize_real_matrix(rot_mat, 3)
 
     call omp_set_num_threads(num_cpu)
 
-    allocate(KPcoeff(nbnd,nbnd,10))
     print *, 'nbnd=',nbnd
     
-    !call normalize_rotation_matrix(rot_mat)
+    call alloc_KPcoeff(nbnd, KPcoeff)
     
     select case( trim(kp_type) )
     
         case( 'LS' )
             print *, rot_mat
             call generate_LS3(KPcoeff, gam1=gam1,gam2=gam2,gam3=gam3,delta=delta,kap_=kappa,qB_=qB,Bvec_=Bvec)  
-            call save_KP_coeff('kpcoeff_unrotated.dat', nbnd, KPcoeff)
-            !call save_Ham_blocks('Ham_blocks_unrotated.dat', nbnd, KPcoeff,dd)
-            allocate(rot_KPcoeff(nbnd,nbnd,10))
+            call save_KP_coeff('kpcoeff_unrotated.dat', nbnd, KPcoeff)            
+            !
+            call alloc_KPcoeff(nbnd, rot_KPcoeff)
             call rotate_basis(nb=3,in_KPcoeff=KPcoeff,out_KPcoeff=rot_KPcoeff,U=rot_mat)
             call save_KP_coeff('kpcoeff_rot_stage1.dat', nbnd, rot_KPcoeff)
-            !call save_Ham_blocks('Ham_blocks_stage1.dat', nbnd, rot_KPcoeff,dd)
+            !            
             call rotate_k_vector(nb=nbnd,in_KPcoeff=rot_KPcoeff,out_KPcoeff=KPcoeff,U=rot_mat)
-            call save_KP_coeff('kpcoeff_rot_stage2.dat', nbnd, KPcoeff)
-            !call save_Ham_blocks('Ham_blocks_stage2.dat', nbnd, KPcoeff,dd)
+            call save_KP_coeff('kpcoeff_rot_stage2.dat', nbnd, KPcoeff)            
             
         case( 'LK4' )
             call generate_LK4(KPcoeff, gam1,gam2,gam3,kappa,qB,Bvec)
@@ -117,7 +117,7 @@ PROGRAM main
 
     call save_matrix_csr('Ham_csr.dat', Nx*Ny*Nz*nbnd, Nx*Ny*Nz*nbnd, H00)
 
-    call test_schroedinger(H00,nbnd,nx,ny,nz,emin,emax,num_modes)
+    ! call test_schroedinger(H00,nbnd,nx,ny,nz,emin,emax,num_modes)
 
     deallocate(H00)
 

@@ -17,8 +17,11 @@ module kpHam
     public :: generate_BLG8
     public :: generate_LS3
     public :: rotate_basis, rotate_k_vector
+    public :: alloc_KPcoeff
+    public :: num_k
     
-
+    character(len=50), parameter :: complexFormat = '("(",ES10.3,",",1X,ES10.3,")",:,1X)'
+    
     complex(8), parameter :: cone = dcmplx(1.0d0,0.0d0)
     complex(8), parameter :: czero  = dcmplx(0.0d0,0.0d0)
     complex(8), parameter :: c1i  = dcmplx(0.0d0,1.0d0)
@@ -31,7 +34,7 @@ module kpHam
     real(8), parameter :: e0=1.6022d-19 ! C
     real(8), parameter :: hb2m=hbar**2/2.0d0/m0/e0  ! hbar^2/(2m0) eV*m^2
         
-    integer, parameter :: num_k = 10 
+    integer, parameter :: num_k = 13 
     ! index for different types of k-terms available in the KP model
     integer, parameter :: const = 1
     integer, parameter :: dx    = 2
@@ -43,15 +46,25 @@ module kpHam
     integer, parameter :: dx2   = 8
     integer, parameter :: dy2   = 9
     integer, parameter :: dz2   = 10
+    integer, parameter :: dydx  = 11
+    integer, parameter :: dzdx  = 12
+    integer, parameter :: dzdy  = 13
     ! lookup table for the index of linear k-terms
     integer, parameter,dimension(3) :: lookup_linear_k  =  [dx, dy, dz]
     ! lookup table for the index of quadratic k-terms
     integer, parameter,dimension(3,3) :: lookup_quadratic_k  = reshape( [dx2,  dxdy, dxdz,&
-                                                                         dxdy,  dy2, dydz,&
-                                                                         dxdz, dydz,  dz2] , shape=[3,3] )
+                                                                         dydx,  dy2, dydz,&
+                                                                         dzdx, dzdy,  dz2] , shape=[3,3] )
 
 CONTAINS
 
+    subroutine alloc_KPcoeff(nbnd, KPcoeff)
+      integer,intent(in)::nbnd ! number of bands
+      complex(8), allocatable, intent(inout) :: KPcoeff(:,:,:)
+      allocate(KPcoeff(nbnd,nbnd,num_k))
+    end subroutine alloc_KPcoeff
+    
+    
     ! build the Hamiltonian blocks for a wire structure
     !   use KPcoeff. table, wire direction can be picked from x-y-z
     subroutine build_wire_ham_blocks(nbnd,KPcoeff, dd, wire_direction, Ny, Nz, H00, H10, vector_field)
@@ -270,16 +283,19 @@ CONTAINS
       !
       out_KPcoeff = czero      
       ! rotation for quadratic k terms  
-      do k=5,10
-        do mp=1,3
-          do np=1,3
-            do m=1,3
-              do n=1,3                
-                out_KPcoeff(mp,np,k) = out_KPcoeff(mp,np,k) + U(mp,m)*U(np,n)*in_KPcoeff(m,n,k)                              
-              enddo
-            enddo              
-          enddo
-        enddo            
+      do i=1,3
+        do j=1,3
+          k =lookup_quadratic_k(i,j)
+          do mp=1,3
+            do np=1,3
+              do m=1,3
+                do n=1,3                
+                  out_KPcoeff(mp,np,k) = out_KPcoeff(mp,np,k) + U(mp,m)*U(np,n)*in_KPcoeff(m,n,k)                              
+                enddo
+              enddo              
+            enddo
+          enddo            
+        enddo
       enddo
     end subroutine rotate_basis
     
@@ -294,7 +310,7 @@ CONTAINS
       integer::i,j,ip,jp,mp,np,k,kp
       !
       out_KPcoeff = czero
-      !out_KPcoeff(:,:,const)=in_KPcoeff(:,:,const)
+      out_KPcoeff(:,:,const)=in_KPcoeff(:,:,const)
       do ip=1,3        
         do i=1,3
           ! rotation for linear k terms
@@ -309,14 +325,10 @@ CONTAINS
           do jp=1,3                            
             do j=1,3             
               kp=lookup_quadratic_k(ip,jp)
-              k =lookup_quadratic_k(i,j)
+              k =lookup_quadratic_k(i,j)                                      
               do mp=1,nb
-                do np=1,nb
-                  if (i /= j) then 
-                    out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)/2.0d0*U(ip,i)*U(jp,j)
-                  else 
-                    out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)*U(jp,j)
-                  endif
+                do np=1,nb                  
+                  out_KPcoeff(mp,np,kp)=out_KPcoeff(mp,np,kp) + in_KPcoeff(mp,np,k)*U(ip,i)*U(jp,j)                      
                 enddo
               enddo
             enddo
@@ -364,11 +376,14 @@ CONTAINS
         KPcoeff(3,3,dy2)=B
         KPcoeff(3,3,dz2)=A
         !
-        KPcoeff(2,1,dxdy)=C
+        KPcoeff(2,1,dxdy)=C/2.0d0
+        KPcoeff(2,1,dydx)=C/2.0d0
         !
-        KPcoeff(3,1,dxdz)=C
+        KPcoeff(3,1,dxdz)=C/2.0d0
+        KPcoeff(3,1,dzdx)=C/2.0d0
         !
-        KPcoeff(3,2,dydz)=C
+        KPcoeff(3,2,dydz)=C/2.0d0
+        KPcoeff(3,2,dzdy)=C/2.0d0
         do n=1,3
           do m=1,n-1
             do i=1,num_k
@@ -541,13 +556,11 @@ CONTAINS
         integer::i,j,k
         real(8)::re,im
         open(unit=11, file=filename, status='unknown')
-        do i=1,nbnd
-          do j=1,nbnd
-            do k=1,num_k
-              read(11,*) re,im
-              KPcoeff(i,j,k) = dcmplx(re,im)
-            enddo
+        do k=1,num_k
+          do i=1,nbnd            
+            read(11,*) KPcoeff(i,:,k)              
           enddo
+          read(11,*)
         enddo
         close(11)
     end subroutine read_KP_coeff
@@ -560,16 +573,19 @@ CONTAINS
         complex(8), intent(in) :: KPcoeff(nbnd,nbnd,num_k) ! KP coeff. table
         ! ----
         integer::i,j,k        
+        character (50) ::  fmtString
         open(unit=11, file=filename, status='unknown')
-        do i=1,nbnd
-          do j=1,nbnd
-            do k=1,num_k
-              write(11,'(2E18.6)') dble( KPcoeff(i,j,k) ), aimag( KPcoeff(i,j,k) )              
-            enddo
+        write(fmtString,'(I0)') nbnd
+        fmtString = '('// trim(fmtString) // trim(complexFormat) // ')'
+        do k=1,num_k
+          do i=1,nbnd         
+            write(11,fmt = fmtString) KPcoeff(i,:,k) 
           enddo
+          write(11,*)
         enddo
         close(11)
     end subroutine save_KP_coeff
+
 
     ! save the KP Hamiltonian blocks to a file
     subroutine save_Ham_blocks(filename, nbnd, KPcoeff,dd)
@@ -590,7 +606,7 @@ CONTAINS
               write(11,'(3I10)') j
               call calc_KP_block(i,j,dd,nbnd,KPcoeff,Hij)
               do m=1,nbnd
-                write(11,'(100E18.6)') Hij(:,m)
+                write(11,fmt='(*'//trim(complexFormat)//')') Hij(:,m)
               enddo
               write(11,*)
             enddo
@@ -611,7 +627,7 @@ CONTAINS
         do i=1,n
             do j=1,m
               if ( abs(Mat(i,j)) > 0.0d0 ) then
-                write(11,'(2I10,2E18.6)') i,j,dble(Mat(i,j)),aimag(Mat(i,j))
+                write(11,fmt='(2I10,'//trim(complexFormat)//')') i,j,Mat(i,j)
               endif
             enddo            
         enddo        
@@ -633,7 +649,7 @@ CONTAINS
             ind(i)=k      
             do j=1,m
                 if (mat(i,j) /= czero) then
-                  write(11,'(1I12,2E18.6)')j, dble(Mat(i,j)),aimag(Mat(i,j))
+                  write(11,fmt='(1I15,1X,'//trim(complexFormat)//')')j, Mat(i,j)
                   k=k+1
                 endif                
             enddo                  
@@ -723,6 +739,9 @@ CONTAINS
         Ham=Ham + KPcoeff(:,:,dxdz)*kx*kz
         Ham=Ham + KPcoeff(:,:,dydz)*ky*kz
         Ham=Ham + KPcoeff(:,:,dxdy)*kx*ky
+        Ham=Ham + KPcoeff(:,:,dzdx)*kx*kz
+        Ham=Ham + KPcoeff(:,:,dzdy)*ky*kz
+        Ham=Ham + KPcoeff(:,:,dydx)*kx*ky
         Ham=Ham + KPcoeff(:,:,dx2)*kx*kx
         Ham=Ham + KPcoeff(:,:,dy2)*ky*ky
         Ham=Ham + KPcoeff(:,:,dz2)*kz*kz
@@ -848,50 +867,62 @@ CONTAINS
         ! +x +y
         if (all(ij == (/1,1,0/))) then
           coeff(dxdy) = 1.0d0/4.0d0/ddx/ddy * (-c1i)**2
+          coeff(dydx) = 1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif
         ! +x -y
         if (all(ij == (/1,-1,0/))) then
           coeff(dxdy) = -1.0d0/4.0d0/ddx/ddy * (-c1i)**2
+          coeff(dydx) = -1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif
         ! -x +y
         if (all(ij == (/-1,1,0/))) then
           coeff(dxdy) = -1.0d0/4.0d0/ddx/ddy * (-c1i)**2
+          coeff(dydx) = -1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif
         ! -x -y
         if (all(ij == (/-1,-1,0/))) then
           coeff(dxdy) = 1.0d0/4.0d0/ddx/ddy * (-c1i)**2
+          coeff(dydx) = 1.0d0/4.0d0/ddx/ddy * (-c1i)**2
         endif        
         ! +x +z
         if (all(ij == (/1,0,1/))) then
           coeff(dxdz) = 1.0d0/4.0d0/ddx/ddz * (-c1i)**2
+          coeff(dzdx) = 1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif
         ! +x -z
         if (all(ij == (/1,0,-1/))) then
           coeff(dxdz) = -1.0d0/4.0d0/ddx/ddz * (-c1i)**2
+          coeff(dzdx) = -1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif 
         ! -x -z
         if (all(ij == (/-1,0,-1/))) then
           coeff(dxdz) = 1.0d0/4.0d0/ddx/ddz * (-c1i)**2
+          coeff(dzdx) = 1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif 
         ! -x +z
         if (all(ij == (/-1,0,1/))) then
           coeff(dxdz) = -1.0d0/4.0d0/ddx/ddz * (-c1i)**2
+          coeff(dzdx) = -1.0d0/4.0d0/ddx/ddz * (-c1i)**2
         endif 
         ! +y +z
         if (all(ij == (/0,1,1/))) then
           coeff(dydz) = 1.0d0/4.0d0/ddy/ddz * (-c1i)**2
+          coeff(dzdy) = 1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif 
         ! -y +z
         if (all(ij == (/0,-1,1/))) then
           coeff(dydz) = -1.0d0/4.0d0/ddy/ddz * (-c1i)**2
+          coeff(dzdy) = -1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif 
         ! +y -z
         if (all(ij == (/0,1,-1/))) then
           coeff(dydz) = -1.0d0/4.0d0/ddy/ddz * (-c1i)**2
+          coeff(dzdy) = -1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif 
         ! -y -z
         if (all(ij == (/0,-1,-1/))) then
           coeff(dydz) = 1.0d0/4.0d0/ddy/ddz * (-c1i)**2
+          coeff(dzdy) = 1.0d0/4.0d0/ddy/ddz * (-c1i)**2
         endif         
     end subroutine calc_FD_coeff
 
@@ -1016,7 +1047,7 @@ CONTAINS
         real(8),allocatable::Ek(:)
         integer :: nk,ik,ipath            
         nk = 1000
-        kmin= 2.0d9
+        kmin=-2.0d9
         kmax= 2.0d9
         k_path=reshape( &
                [ -1.0, 0.0, 0.0, 1.0, 0.0, 0.0, &
@@ -1039,7 +1070,7 @@ CONTAINS
           kpt1(:) = k_path(1:3,ipath) / sqrt( sum(k_path(1:3,ipath)**2) ) * kmin
           
           print *, kpt1
-          kpt2(:) = k_path(4:6,ipath) / sqrt( sum(k_path(4:6,ipath)**2) ) * kmax
+          kpt2(:) = k_path(1:3,ipath) / sqrt( sum(k_path(1:3,ipath)**2) ) * kmax
           
           print *, kpt2
           do ik = 1,nk
@@ -1078,8 +1109,8 @@ CONTAINS
         kpt1 = -3.1415d0/dx
         kpt2 = +3.1415d0/dx
         do ik = 1,nk
-          print *
-          print *, ik, '/', nk
+          !print *
+          !print *, ik, '/', nk
           kpt= (kpt2-kpt1) * dble(ik)/dble(nk) + kpt1          
           Ham(:,:) = H00(:,:) + exp( - c1i * kpt * dx )*H10(:,:) &
                               + exp( + c1i * kpt * dx )*transpose(conjg(H10(:,:)))
